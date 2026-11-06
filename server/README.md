@@ -5,7 +5,7 @@ Later milestones add Vectorize, Workers AI embeddings and cron triggers.
 
 ## Run and deploy
 ```sh
-npm test          # 21 tests: context gate, Access JWT, sync, ingestion (no dependencies)
+npm test          # 25 tests: context gate, Access JWT, sync, ingestion, proof loop (no dependencies)
 npm run dev       # local D1 + wrangler dev on http://localhost:8787 (AUTH=dev from .dev.vars, localhost only)
 npm run deploy    # remote migrations + deploy
 ```
@@ -39,6 +39,15 @@ browser (Forge) ──► Cloudflare Access (only Matis) ──► Worker /api/*
 - Public repos work without a token (60 GitHub calls/hour). For private repos or more headroom, create a **fine-grained, read-only** token (Contents: read, Metadata: read, selected repos) and run `npx wrangler secret put GITHUB_TOKEN`.
 - Visibility is per source (or per repo) and cascades to every chunk; `GET /api/search` is local FTS5 over all of them, since nothing leaves the database.
 
+## Proof loop (M11)
+- **Daily cron** (`0 4 * * *` UTC, `scheduled()` in `src/index.js`) creates today's question from a random chunk of a recently updated source (never journal, never `private`, never a chunk already asked). Proof → "Generate today's question" does the same on demand (max 5 a day).
+- A question stores a snapshot of its chunk, so editing the code later keeps the history; it inherits its source's visibility (trigger), and a source turned `private` retires its questions instead of sending them.
+- **Answer screen**: no source, timer, typing telemetry. A paste/drop event, or more than 15 characters per second of active typing, marks the answer `pasted`: graded, shown, scheduled as *Again*, never counted.
+- **Grading** (0–100 + one-line fix) against the rubric and the source chunk, then the source is shown. Score → rating: <50 Again, <70 Hard, <90 Good, else Easy.
+- **Scheduling**: FSRS-4.5 default weights, retention 0.9, day granularity in Europe/Paris; Again comes back tomorrow.
+- **Mastery** (`src/proof.js`): last non-pasted score × FSRS recall probability today, averaged per concept, project and Skills track. Skills shows it next to the self-rating and flags 35-point gaps.
+- **Model**: Workers AI binding (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`, clearance `trusted`, no key). Override providers/routes with the `AI_CONFIG` var (JSON, same shape as below).
+
 ## Config (Worker vars + secrets)
 ```json
 {
@@ -61,7 +70,7 @@ Any OpenAI-compatible `/chat/completions` endpoint works. API keys are Worker se
 | M7 Context flows | **Done**: gate, router, audit, per-item visibility (notes, sources, repos), Context inspector. Vector deletion on → private lands with Vectorize in M9 | mixed items: only allowed ones reach the mock provider; audit lists exactly those ids ✅ |
 | M0 Backend base | **built and tested locally**; deploy needs the Cloudflare account | Worker deployed behind Access; local data (notes, log, reviews) syncs to D1 |
 | M8 Ingestion | **Done**: notes/journal, PDF/Markdown upload, GitHub sync (verified on matiscodjia/sentinel: 23 files, 137 chunks, re-sync creates nothing) | ROUILLE sync → one chunk per function with path + lines; re-sync creates nothing |
-| M11 Proof loop | | a week of simulated reviews gives correct due dates; pasted answers never raise mastery |
+| M11 Proof loop | **Done**: daily question, answer screen with paste detection, grading, FSRS, mastery in Proof and Skills | a week of simulated reviews gives correct due dates; pasted answers never raise mastery |
 | M9 Hybrid + agentic RAG | | "Why const generics in ROUILLE?" cites real chunks; private journal → "not available to the AI" |
 | M10 LLM Wiki | | a SENTINEL commit changing the Kalman update yields a cited proposal on `kalman-filter` |
 | M12 Life context | | brief and weekly review cite sources; audit shows no private item used |

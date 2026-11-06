@@ -11,5 +11,7 @@
   ],
   // ACCESS_AUD and ACCESS_TEAM are set after Cloudflare Access is enabled (see server/README.md).
   "vars": { "ACCESS_TEAM": "matis-codjia", "ACCESS_AUD": "5dba9a186bf1db5fe30b80518c9b470e8821f0eaa4f57bfe1756bc0e4d800ac7", "ACCESS_EMAIL": "matis.codjia@epita.fr" },
+  "ai": { "binding": "AI" },
+  "triggers": { "crons": ["0 4 * * *"] },
   "observability": { "enabled": true }
 }

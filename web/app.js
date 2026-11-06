@@ -34,6 +34,7 @@ const I = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  proof: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z"/><path d="m8.8 12 2.3 2.3 4.2-4.6"/>',
   sources: '<ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/>',
   context: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
@@ -41,7 +42,7 @@ const I = {
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
 const ROUTES = [
   ["dashboard", "Home", ""], ["today", "Today", ""],
-  ["path", "Path", "Learn"], ["library", "Library", "Learn"], ["review", "Review", "Learn"],
+  ["path", "Path", "Learn"], ["library", "Library", "Learn"], ["review", "Review", "Learn"], ["proof", "Proof", "Learn"],
   ["arena", "Arena", "Practice"], ["diagnostic", "Diagnostic", "Practice"],
   ["log", "Log", "Track"], ["skills", "Skills", "Track"], ["scorecard", "Scorecard", "Track"], ["pipeline", "Pipeline", "Track"], ["rules", "Rules", "Track"],
   ["sources", "Sources", "Brain"], ["context", "Context", "Brain"]
@@ -97,7 +98,7 @@ const theoryLast = (id) => { const xs = S.theory.filter((t) => t.part === id); r
 /* ---------------- shell ---------------- */
 function nav() {
   const r = route(), rq = SRS.queue(), due = rq.due.length + rq.fresh.length;
-  const badge = { today: `${dayCount(TODAY())}/${NB()}`, arena: `${C.problems.filter((p) => patLevel(p.id) >= 2).length}/${C.problems.length}`, path: `${modsDone()}/${C.modules.length}`, review: due ? String(due) : "" };
+  const badge = { today: `${dayCount(TODAY())}/${NB()}`, arena: `${C.problems.filter((p) => patLevel(p.id) >= 2).length}/${C.problems.length}`, path: `${modsDone()}/${C.modules.length}`, review: due ? String(due) : "", proof: proofDue ? String(proofDue) : "" };
   let g = null, html = "";
   ROUTES.forEach(([k, t, grp]) => { if (grp !== g) { g = grp; if (grp) html += `<div class="nav-g">${grp}</div>`; } html += `<a href="#${k}" ${k === r ? 'aria-current="page"' : ""}>${icon(k)}<span>${t}</span>${badge[k] ? `<span class="badge">${badge[k]}</span>` : ""}</a>`; });
   $("#nav").innerHTML = html;
@@ -649,10 +650,12 @@ VIEWS.skills = (v) => {
     <div class="card"><div class="card-h"><h3>Shape</h3></div>${radar()}
       <div class="muted" style="font-size:13px;margin-top:8px">${C.levels.map((l, i) => `${i} ${l}`).join(" · ")}</div></div>
   </section>
+  ${Sync && Sync.enabled ? `<section class="card" id="smast"><div class="faint">Loading measured mastery…</div></section>` : ""}
   <section class="card"><div class="card-h"><h3>Coding patterns</h3><span class="muted" style="font-size:13px">Measured by the Arena: tried · solved · solved in a timed mock</span></div>
     <div class="patgrid">${C.problems.map((p) => { const l = patLevel(p.id); return `<a class="pat" href="#arena" data-go="${p.id}"><span>${esc(p.pattern)}</span><span class="pips ${l === 3 ? "full" : ""}">${[1, 2, 3].map((i) => `<i class="${i <= l ? "on" : ""}"></i>`).join("")}</span></a>`; }).join("")}</div>
   </section>`;
   $$("[data-t]", v).forEach((b) => b.onclick = () => { const k = b.dataset.t, l = +b.dataset.l; S.skills[k] = S.skills[k] === l ? l - 1 : l; save(); render(); });
+  masteryCard($("#smast"), { compare: true });
   $$("[data-go]", v).forEach((a) => a.addEventListener("click", () => { S.sel = a.dataset.go; save(); }));
 };
 
@@ -1098,6 +1101,99 @@ VIEWS.context = (v) => {
   }, (e) => { const el = $("#calls"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
 };
 
+/* ---------------- proof loop: daily questions you can't fake ---------------- */
+let proofDue = null; /* nav badge */
+const refreshProof = () => { if (!(Sync && Sync.enabled)) return; api("GET", "/api/proof").then((s) => { proofDue = s.due.length; nav(); }, () => {}); };
+let pf = null; /* answer in progress: { qid, text, started, typed, last, pasted } */
+let pr = null; /* last graded result, shown until "Next" */
+const scoreCls = (s) => s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
+const dueTxt = (d) => { const n = Math.round((Date.parse(d) - Date.parse(TODAY())) / 864e5); return n <= 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days (${d})`; };
+VIEWS.proof = (v) => {
+  if (needsWorker(v)) return;
+  v.innerHTML = `<div class="faint">Loading…</div>`;
+  api("GET", "/api/proof").then((s) => {
+    if (route() !== "proof") return;
+    proofDue = s.due.length; nav();
+    const q = s.due[0];
+    const kpis = `<section class="grid g-4">
+      <div class="card kpi"><span class="eyebrow">Due today</span><b>${s.due.length}</b><span class="sub">${s.done.length} answered today</span></div>
+      <div class="card kpi"><span class="eyebrow">Questions</span><b>${s.totals.questions}</b><span class="sub">one new a day from your sources</span></div>
+      <div class="card kpi"><span class="eyebrow">Reviews</span><b>${s.totals.reviews}</b><span class="sub">${s.totals.pasted} pasted · never counted</span></div>
+      <div class="card kpi"><span class="eyebrow">Next</span><b style="font-size:22px">${s.upcoming[0] ? esc(dueTxt(s.upcoming[0].due)) : "—"}</b><span class="sub">${s.upcoming[0] ? `${s.upcoming[0].n} question${s.upcoming[0].n === 1 ? "" : "s"}` : "nothing scheduled"}</span></div></section>`;
+    let main;
+    if (pr) {
+      const m = pr.source.meta || {};
+      main = `<section class="card review">
+        <div class="row" style="justify-content:space-between"><span class="row" style="gap:8px"><span class="score ${scoreCls(pr.score)} num">${pr.score}</span>${pr.pasted ? `<span class="pill warn" title="Graded, but it never counts toward mastery">pasted · not counted</span>` : ""}</span><span class="muted" style="font-size:13px">Back ${esc(dueTxt(pr.due))}</span></div>
+        <div class="md" style="margin-top:6px"><b>Question.</b> ${md(pr.prompt)}</div>
+        <p style="margin:0"><b>Fix:</b> ${esc(pr.fix)}</p>
+        <details open><summary class="eyebrow" style="cursor:pointer">Rubric</summary><div class="md">${md(pr.rubric)}</div></details>
+        <div class="card chunk"><div class="row" style="justify-content:space-between"><b style="font-size:14px">${esc(pr.source.title || "Source")}</b>${pr.source.source_id ? `<a class="faint" style="font-size:13px" href="${sourceHref({ kind: pr.source.kind, source_id: pr.source.source_id })}">Open source →</a>` : ""}</div>
+          ${pr.source.kind === "repo" || m.path ? `<pre>${esc(pr.source.text)}</pre>` : `<div class="md" style="margin-top:8px">${md(pr.source.text)}</div>`}</div>
+        <div class="row" style="justify-content:flex-end"><button class="btn primary" id="pnext">${s.due.length ? `Next question (${s.due.length} left)` : "Done"} <kbd>Enter</kbd></button></div></section>`;
+    } else if (q) {
+      if (!pf || pf.qid !== q.id) pf = { qid: q.id, text: "", started: Date.now(), typed: 0, last: 0, pasted: false };
+      main = `<section class="card review">
+        <div class="row" style="justify-content:space-between"><span class="row" style="gap:6px"><span class="pill ${q.reps ? "acc" : "ember"}">${q.reps ? "review" : "new"}</span>${q.concept ? `<span class="pill">${esc(q.concept)}</span>` : ""}${q.project ? `<span class="pill">${esc(q.project)}</span>` : ""}</span><span class="muted num" id="ptimer" style="font-size:13px">00:00</span></div>
+        <div class="rv-front md">${md(q.prompt)}</div>
+        <textarea class="input proof-ans" id="pans" placeholder="Answer from memory. No notes, no search: this is the proof." spellcheck="true">${esc(pf.text)}</textarea>
+        <div class="row" style="justify-content:space-between"><span class="faint" id="pflag" style="font-size:12px">${pf.pasted ? "Paste detected: it will be graded but won't count." : "Typing time is measured; pasted answers never count toward mastery."}</span>
+          <span class="row"><button class="x" id="pret" title="Bad question? Remove it">Retire</button><button class="btn primary" id="psend">Grade <kbd>⌘ Enter</kbd></button></span></div></section>`;
+    } else {
+      main = `<section class="card"><div class="empty"><b style="color:var(--fg)">${s.done.length ? `Done for today: ${s.done.length} answered.` : "Nothing due."}</b><br>
+        ${!s.ready ? "No AI provider is available on this deployment." : s.createdToday ? (s.canCreate ? "Today's question is answered. You can ask for another one." : "") : "Today's question hasn't been generated yet (the cron runs at 5:00)."}
+        ${s.ready && s.canCreate ? `<div class="row" style="justify-content:center;margin-top:12px"><button class="btn ${s.createdToday ? "" : "primary"}" id="pgen">${s.createdToday ? "One more question" : "Generate today's question"}</button></div>` : ""}</div></section>`;
+    }
+    const hist = s.done.length ? `<section class="card"><div class="card-h"><h3>Today</h3></div><div class="next-list">${s.done.map((d) => `<div class="next-item ctx"><span class="score sm ${scoreCls(d.score)} num">${d.score}</span><span style="flex:1;min-width:0" class="md-inline">${inline(d.prompt.slice(0, 140))}</span>${d.pasted ? `<span class="pill warn">pasted</span>` : ""}<span class="faint" style="font-size:12px">${esc(dueTxt(d.due))}</span></div>`).join("")}</div></section>` : "";
+    v.innerHTML = kpis + main + hist + `<section class="card" id="pmast"><div class="faint">Loading mastery…</div></section>`;
+    math(v);
+    masteryCard($("#pmast"));
+
+    const nx = $("#pnext"); if (nx) { nx.onclick = () => { pr = null; render(); }; nx.focus({ preventScroll: true }); }
+    const gen = $("#pgen"); if (gen) gen.onclick = () => { gen.disabled = true; gen.textContent = "Writing a question…"; api("POST", "/api/proof/generate", {}).then(() => render(), (e) => { fail(e); render(); }); };
+    const ta = $("#pans");
+    if (ta) {
+      const tick = setInterval(() => { const t = $("#ptimer"); if (t) t.textContent = fmtClock(Date.now() - pf.started); }, 1000); cleanup.push(() => clearInterval(tick));
+      const flag = () => { pf.pasted = true; $("#pflag").textContent = "Paste detected: it will be graded but won't count."; $("#pflag").className = "warn-txt"; };
+      ta.addEventListener("paste", flag); ta.addEventListener("drop", flag);
+      ta.addEventListener("beforeinput", (e) => { if (/^insertFrom(Paste|Drop)/.test(e.inputType || "")) flag(); });
+      ta.addEventListener("input", () => { const t = Date.now(); if (pf.last) pf.typed += Math.min(2000, t - pf.last); pf.last = t; pf.text = ta.value; });
+      const send = () => {
+        if (!ta.value.trim()) return toast("Write an answer first.");
+        const b = $("#psend"); b.disabled = true; b.textContent = "Grading…"; ta.readOnly = true;
+        api("POST", `/api/proof/${q.id}/answer`, { answer: ta.value, typed_ms: pf.typed, elapsed_ms: Date.now() - pf.started, pasted: pf.pasted })
+          .then((r) => { pr = { ...r, prompt: q.prompt }; pf = null; render(); }, (e) => { fail(e); b.disabled = false; b.textContent = "Grade"; ta.readOnly = false; if (e.message && /retired/.test(e.message)) { pf = null; render(); } });
+      };
+      $("#psend").onclick = send;
+      ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } };
+      $("#pret").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Confirm retire"; return; } api("POST", `/api/proof/${q.id}/retire`, {}).then(() => { pf = null; render(); }, fail); };
+      if (!pf.text) ta.focus();
+    }
+    const key = (e) => { if (pr && e.key === "Enter" && document.activeElement.tagName !== "TEXTAREA") { e.preventDefault(); pr = null; render(); } };
+    document.addEventListener("keydown", key); cleanup.push(() => document.removeEventListener("keydown", key));
+  }, (e) => { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+};
+
+const TRACK_NAME = Object.fromEntries(C.tracks.map((t) => [t.k, t.t]));
+/** Mastery from reviews only: last non-pasted score × probability of recall today. */
+function masteryCard(el, { compare = false } = {}) {
+  if (!el) return;
+  api("GET", "/api/proof/mastery").then((m) => {
+    if (!el.isConnected) return;
+    const bar = (x) => x == null ? `<span class="faint">unproven</span>` : `<span class="row" style="gap:8px;flex-wrap:nowrap"><span class="progress" style="width:110px"><i style="width:${x}%"></i></span><span class="num">${x}%</span></span>`;
+    if (compare) {
+      const rows = C.tracks.map((t) => { const g = m.tracks.find((x) => x.key === t.k), self = Math.round(((S.skills[t.k] || 0) / 5) * 100); const gap = g && g.mastery != null && g.proven >= 2 ? self - g.mastery : null; return { t, g, self, gap }; });
+      el.innerHTML = `<div class="card-h"><h3>Measured vs self-rated</h3><span class="muted" style="font-size:13px">Measured = Proof reviews only (pasted answers excluded). Gaps of 35+ points are flagged.</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Track</th><th>Self-rated</th><th>Measured</th><th>Proven</th><th></th></tr></thead><tbody>${rows.map(({ t, g, self, gap }) => `<tr${gap != null && Math.abs(gap) >= 35 ? ' class="gap"' : ""}><td>${esc(t.t)}</td><td>${bar(self)}</td><td>${bar(g ? g.mastery : null)}</td><td class="num muted">${g ? `${g.proven}/${g.questions}` : "0"}</td><td>${gap == null ? "" : gap >= 35 ? `<span class="pill warn">overrated by ${gap}</span>` : gap <= -35 ? `<span class="pill good">underrated by ${-gap}</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+      return;
+    }
+    if (!m.questions.length) { el.innerHTML = `<div class="card-h"><h3>Mastery</h3></div><div class="empty">Answer your first question: mastery per concept and project is built only from reviews.</div>`; return; }
+    const tbl = (rows, name) => `<table><thead><tr><th>${name}</th><th>Mastery</th><th>Proven</th></tr></thead><tbody>${rows.map((g) => `<tr><td>${esc(name === "Track" ? TRACK_NAME[g.key] || g.key : g.key)}</td><td>${bar(g.mastery)}</td><td class="num muted">${g.proven}/${g.questions}${g.pasted ? ` · ${g.pasted} pasted` : ""}</td></tr>`).join("")}</tbody></table>`;
+    el.innerHTML = `<div class="card-h"><h3>Mastery</h3><span class="muted" style="font-size:13px">Last honest score × chance you still remember it today</span></div>
+      <div class="grid g-2"><div class="table-wrap">${tbl(m.concepts.slice(0, 15), "Concept")}</div><div class="table-wrap">${tbl(m.projects, "Project")}${tbl(m.tracks, "Track")}</div></div>`;
+  }, (e) => { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+}
+
 /* ---------------- command palette (⌘K / Ctrl K / "/") ---------------- */
 const Palette = {
   el: null, sel: 0, list: [],
@@ -1111,6 +1207,7 @@ const Palette = {
        { t: "Journal entry", sub: "Action · private", run: () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"], visibility: "private" }); location.hash = `#library/${n.id}`; } },
        { t: "Search the second brain", sub: "Action", run: go("#sources") },
        { t: "Review due cards", sub: "Action", run: go("#review") },
+       { t: "Answer today's proof questions", sub: "Action", run: go("#proof") },
        { t: "Export backup", sub: "Action", run: () => $("#exportBtn").click() },
        { t: "Import backup", sub: "Action", run: () => $("#importFile").click() },
        { t: "Switch theme", sub: "Action", run: () => $("#themeBtn").click() }],
@@ -1158,7 +1255,7 @@ applyTheme();
 render();
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if (Sync) {
-  Sync.detect().then((ok) => { if (ok) Sync.sync(); });
+  Sync.detect().then((ok) => { if (ok) { Sync.sync(); refreshProof(); if (["sources", "context", "proof", "skills"].includes(route())) render(); } });
   setInterval(() => { if (!document.hidden && Sync.status !== "local") Sync.sync(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.sync(); });
   window.addEventListener("online", () => Sync.sync());

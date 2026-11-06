@@ -438,3 +438,13 @@ details.call + details.call { border-top: 1px solid var(--line); }
 .field .small-sel { width: 100%; }
 details.call summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
 details.call[open] summary::before { transform: rotate(90deg); }
+
+/* proof */
+.proof-ans { min-height: 180px; resize: vertical; font: inherit; font-size: 15px; line-height: 1.55; }
+.score { display: inline-grid; place-items: center; min-width: 56px; height: 40px; padding: 0 10px; border-radius: 10px; font: 600 22px var(--mono); }
+.score.sm { min-width: 40px; height: 26px; font-size: 13px; border-radius: 7px; }
+.score.good { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.score.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.score.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.warn-txt { color: var(--warn); font-size: 12px; }
+tr.gap td { background: color-mix(in srgb, var(--warn) 8%, transparent); }
