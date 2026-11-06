@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test server/test/",
+    "test": "node --test \"server/test/*.test.js\"",
     "dev": "wrangler d1 migrations apply forge --local && wrangler dev",
     "deploy": "wrangler d1 migrations apply forge --remote && wrangler deploy"
   },
