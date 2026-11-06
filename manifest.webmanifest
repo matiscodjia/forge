@@ -1,0 +1,11 @@
+{
+  "name": "Forge",
+  "short_name": "Forge",
+  "description": "Training system for interview-ready ML engineering.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B1018",
+  "theme_color": "#0B1018",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
