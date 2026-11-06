@@ -42,12 +42,12 @@ const I = {
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
 const ROUTES = [
   ["now", "Now", ""], ["today", "Today", ""],
-  ["path", "Path", "Learn"], ["library", "Library", "Learn"], ["review", "Review", "Learn"], ["proof", "Proof", "Learn"],
+  ["path", "Path", "Learn"], ["library", "Library", "Learn"], ["review", "Review", "Learn"], ["proof", "Proof", "Learn"], ["gaps", "Weak spots", "Learn"],
   ["arena", "Arena", "Practice"], ["diagnostic", "Diagnostic", "Practice"],
   ["log", "Log", "Track"], ["skills", "Skills", "Track"], ["scorecard", "Scorecard", "Track"], ["pipeline", "Pipeline", "Track"], ["rules", "Rules", "Track"],
   ["sources", "Sources", "Brain"], ["context", "Context", "Brain"]
 ];
-const TOP = ["now", "path", "arena", "proof", "review", "library", "skills", "log"];
+const TOP = ["now", "path", "arena", "proof", "review", "gaps", "library", "skills", "log"];
 const MOBILE = ["now", "arena", "proof", "review"];
 const NB = () => C.blocks.length; /* blocks per day */
 const BANK = 3;                  /* observed blocks needed to bank a day */
@@ -383,6 +383,7 @@ function nowItems() {
     const m = planMod && modStatus(planMod.id) !== "done" ? planMod : nextMod();
     if (m) { const stg = stageOf(m); out.push({ href: `#path/${m.id}`, kick: `Path · stage ${C.stages.indexOf(stg)} · ${areaOf(stg.area).t}`, h: `${esc(m.t)}, <em>rebuilt from a blank file.</em>`, meta: [`~${m.hrs} h`, `${fmtH(modMin(m.id))} h logged`, `${Math.round(modProgress(m) * 100)}% done`], go: modStatus(m.id) === "active" ? "Continue" : "Start", later: [m.t, `path · ${fmtH(modMin(m.id))} / ${m.hrs} h`] }); }
   }
+  if (todayPlan && todayPlan.gap) out.push({ href: `#gaps/${todayPlan.gap}`, kick: "Weak spot · picked by the planner", h: `${esc(todayPlan.gapTopic || "Your weak spot")}, <em>until you can explain it cold.</em>`, meta: ["lesson, references, drills", "proven by Proof"], go: "Open", later: [todayPlan.gapTopic || "Weak spot", "weak spot · practise"] });
   if (proofDue) out.push({ href: "#proof", kick: `Proof · ${proofDue} due`, h: `${proofDue} question${proofDue === 1 ? "" : "s"} from your own sources, <em>answered from memory.</em>`, meta: ["~3 min each", "pasted answers never count"], go: "Answer", later: [`${proofDue} proof question${proofDue === 1 ? "" : "s"}`, "proof · ~3 min each"] });
   if (due) out.push({ href: "#review", kick: `Review · ${due} cards`, h: `${due} card${due === 1 ? "" : "s"}, <em>recall before you read.</em>`, meta: [`${q.due.length} due`, `${q.fresh.length} new`], go: "Review", later: [`${due} card${due === 1 ? "" : "s"} to review`, "review"] });
   if (!o.ship) out.push({ href: "#sources", kick: "Ship · no commit today", h: `One real commit, <em>pushed to a synced repository.</em>`, meta: ["ROUILLE, SENTINEL or the ISBI work", "detected from GitHub"], go: "Repositories", later: ["Ship a commit", "detected from GitHub"] });
@@ -536,7 +537,7 @@ function pickerHtml(it) {
 function tutorHtml(it) {
   if (!tutorOpen) return `<button class="ask" id="askBtn" type="button"><i></i>Stuck? Ask the tutor <kbd>⌘I</kbd></button>`;
   const msgs = (S.tutor && S.tutor[itemId(it)]) || [];
-  return `<div class="tutor" role="dialog" aria-label="Tutor"><header><b>Tutor</b><button type="button" id="tclose">hints only · <kbd>esc</kbd></button></header>
+  return `<div class="tutor" role="dialog" aria-label="Tutor"><header><b>Tutor</b><span class="row" style="gap:10px"><button type="button" class="x" id="tgap" title="Not just this exercise? Turn what you're stuck on into a weak spot with a study pack">weak spot</button><button type="button" id="tclose">hints only · <kbd>esc</kbd></button></span></header>
     <div class="msgs" id="tmsgs">${msgs.length ? msgs.map((m) => m.role === "me" ? `<div class="me">${esc(m.text)}</div>` : `<div class="ai"><span class="who">tutor${m.guarded ? " · rephrased to keep the answer yours" : ""}</span>${inline(m.text)}</div>`).join("") : `<div class="hello">Say what you tried and where it breaks. The tutor points at the idea and asks a question back; it never writes the fix. Each reply counts as a hint.</div>`}</div>
     <div class="ctx"><span class="bare">sees</span><span>exercise</span><span>your code</span><span>last run</span><span class="bare" style="margin-left:auto">never the solution</span></div>
     <form id="tform"><textarea id="tin" rows="1" placeholder="Ask about your code…"></textarea><kbd>↵</kbd></form></div>`;
@@ -601,6 +602,14 @@ function wireTutor(it) {
   const id = itemId(it), box = $("#tmsgs"), inp = $("#tin"); if (!inp) return;
   math(box); box.scrollTop = box.scrollHeight; inp.focus();
   $("#tclose").onclick = () => toggleTutor(it, false);
+  $("#tgap").onclick = () => {
+    if (!(Sync && Sync.enabled)) return toast("Weak spots run on the Forge Worker.");
+    const b = $("#tgap"), mine = tutorOf(id).filter((m) => m.role === "me" && m.day === TODAY()).map((m) => `- ${m.text}`).join("\n");
+    const title = it.col === "ml" ? it.d.title : `${it.p.pattern}: ${it.p.fn}`, desc = String(it.col === "ml" ? it.d.desc : it.p.text).replace(/<[^>]+>/g, "").slice(0, 600);
+    b.disabled = true; b.textContent = "building a study pack…";
+    api("POST", "/api/gaps", { topic: "", origin: "tutor", context: `Arena exercise: ${title}\n${desc}\n\nWhat he asked the tutor today:\n${mine || "(nothing yet)"}\n\nLast test run:\n${runText(it).slice(0, 1500)}` })
+      .then((g) => { toast(`Weak spot: ${g.topic}. Study pack ready.`); b.textContent = "weak spot ✓"; b.onclick = () => { location.hash = `#gaps/${g.id}`; }; b.disabled = false; }, (e) => { fail(e); b.disabled = false; b.textContent = "weak spot"; });
+  };
   inp.oninput = () => { inp.style.height = "auto"; inp.style.height = Math.min(120, inp.scrollHeight) + "px"; };
   inp.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#tform").requestSubmit(); } };
   $("#tform").onsubmit = async (e) => {
@@ -970,6 +979,43 @@ function explainHtml(x, extra = [], saveLabel = "", foot = "Grade it honestly (A
     ${refs.length ? `<div class="refs"><span class="eyebrow">Read next</span>${refs.map((r) => `<a class="next-item" href="${esc(r.href)}"${r.ext ? ext(r.href) : ""}><span>${esc(r.title)}</span><span class="faint m">${esc(r.sub)}</span></a>`).join("")}</div>` : ""}
     <p class="faint m" style="margin:0">${foot}${saveLabel && !x.saved ? ` <button class="x" id="explainSave" type="button">${saveLabel}</button>` : x.saved ? " Saved in the note." : ""}</p></div>`;
 }
+/* ---- weak spots: ask for a topic, get a study pack; the planner brings it back until it is proven ---- */
+let gapsCache = null;
+VIEWS.gaps = (v) => {
+  if (needsWorker(v)) return;
+  const focus = routeArg();
+  const card = (g) => `<article class="card gap" id="gap-${g.id}">
+    <div class="row" style="justify-content:space-between;align-items:baseline"><span class="eyebrow">${g.status === "mastered" ? "mastered" : "weak spot"} · ${esc({ ask: "you asked", tutor: "from the tutor", note: "from a note", planner: "spotted by the planner" }[g.origin] || g.origin)} · ${esc(when(g.created))}</span>
+      <span class="row" style="gap:10px"><span class="pill num">${g.proven} / ${Math.max(2, g.total)} proven</span>${g.status === "open" ? `<button class="x" data-gdrop="${g.id}" type="button">Drop</button>` : ""}</span></div>
+    <h3 style="font-size:28px;margin-top:6px">${esc(g.topic)}</h3>${g.diagnosis ? `<p class="muted" style="margin:6px 0 0">${esc(g.diagnosis)}</p>` : ""}
+    <details ${focus === g.id || (!focus && g.status === "open") ? "open" : ""} style="margin-top:12px"><summary class="eyebrow" style="cursor:pointer">Study pack</summary>
+      <div class="grid g-main" style="margin-top:12px;gap:20px">
+        <div class="md">${md(g.lesson || "")}</div>
+        <div class="stack" style="gap:14px">
+          ${(g.resources || []).length || (g.brain || []).length ? `<div class="refs"><span class="eyebrow">Read</span>${(g.resources || []).map((r) => `<a class="next-item" href="${esc(r.u)}"${ext(r.u)}><span>${esc(r.t)}</span><span class="faint m">${esc(KIND[r.k] || r.k)}</span></a>`).join("")}${(g.brain || []).map((r) => `<a class="next-item" href="${sourceHref({ kind: r.kind, source_id: r.source_id })}"><span>${esc(r.title)}</span><span class="faint m">in your brain</span></a>`).join("")}</div>` : ""}
+          ${(g.drills || []).length ? `<div class="refs"><span class="eyebrow">Practise</span>${g.drills.map((id) => { const d = DR.find((x) => x.id === id); return d ? `<a class="next-item" href="#arena/${d.id}"><span>${esc(d.title)}</span><span class="faint m">Arena · ${(drillSt(d.id) || {}).solved ? "solved" : "open"}</span></a>` : ""; }).join("")}</div>` : ""}
+          <div class="refs"><span class="eyebrow">Prove it</span>${g.questions.map((q) => `<a class="next-item" href="#proof"><span class="md-inline">${inline(q.prompt.slice(0, 110))}${q.prompt.length > 110 ? "…" : ""}</span><span class="faint m">${q.score != null ? `scored ${q.score}` : q.due <= TODAY() ? "due now" : `due ${esc(dueTxt(q.due))}`}</span></a>`).join("")}</div>
+        </div></div></details></article>`;
+  const paint = (r) => {
+    if (route() !== "gaps") return;
+    v.innerHTML = `
+    <section class="card"><div class="card-h"><h3>Master a topic</h3></div>
+      <form id="gform" class="row" style="flex-wrap:nowrap"><input class="input" id="gtopic" placeholder="e.g. numpy axes and keepdims, why softmax subtracts the max, eigenvectors…" autocomplete="off"><button class="btn primary" id="ggo" type="submit">Build a study pack</button></form>
+      <p class="faint m" style="margin:10px 0 0">The assistant explains it, picks the best references from your Path and brain, points to drills, and schedules two Proof questions (tomorrow, then in 3 days). The planner brings it back until two answers from memory score 70+. In the Arena, the tutor's "weak spot" button does this from what you were stuck on.</p></section>
+    ${r ? (r.open.length ? r.open.map(card).join("") : `<section class="card"><div class="empty">No open weak spot. When something doesn't click, name it above, or press "weak spot" in the tutor.</div></section>`)
+      + (r.mastered.length ? `<details class="card"><summary><b>Mastered</b> <span class="muted">· ${r.mastered.length}</span></summary><div class="stack" style="gap:14px;margin-top:14px">${r.mastered.map(card).join("")}</div></details>` : "") : `<div class="faint">Loading…</div>`}`;
+    math(v);
+    $("#gform").onsubmit = (e) => {
+      e.preventDefault(); const t = $("#gtopic").value.trim(); if (!t) return $("#gtopic").focus();
+      const b = $("#ggo"); b.disabled = true; b.textContent = "Building…";
+      api("POST", "/api/gaps", { topic: t, origin: "ask" }).then((g) => { location.hash = `#gaps/${g.id}`; gapsCache = null; render(); }, (e2) => { fail(e2); b.disabled = false; b.textContent = "Build a study pack"; });
+    };
+    $$("[data-gdrop]", v).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm drop"; return; } api("POST", `/api/gaps/${b.dataset.gdrop}/drop`, {}).then(() => render(), fail); });
+    if (focus) { const el = $(`#gap-${focus}`); if (el) el.scrollIntoView({ block: "start" }); }
+  };
+  paint(gapsCache);
+  api("GET", "/api/gaps").then((r) => { gapsCache = r; paint(r); }, (e) => { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+};
 VIEWS.review = (v) => {
   const q = SRS.queue(), byId = Object.fromEntries(q.cards.map((c) => [c.id, c]));
   if (rv && rv.day !== TODAY()) rv = null;
@@ -1415,6 +1461,9 @@ function openCapture() {
       catch (e) { d = { note: "inbox", mod: where.mod, tags: [], cards: [], fallback: true }; }
     } else d = { note: "inbox", mod: where.mod, tags: [], cards: [], fallback: true };
     const n = fileLocally(d, text); lsSet(DRAFT, null); done(n, d);
+    if (d.gap && Sync && Sync.enabled) api("POST", "/api/gaps", { topic: d.gap, origin: "note", context: text }).then((g) => {
+      const box = $(".cap-done", el); if (box) { box.insertAdjacentHTML("beforeend", `<a class="m" href="#gaps/${g.id}" style="margin-top:6px">Weak spot: ${esc(g.topic)} · study pack ready →</a>`); const a = box.lastElementChild; a.onclick = () => el.remove(); }
+    }, () => {});
     if (route() === "library") render();
   }
   el.onclick = (e) => { if (e.target === el) close(); };
@@ -1471,6 +1520,7 @@ function updateCtx() {
   const strip = (x) => String(x).replace(/<[^>]+>/g, "").replace(/\$/g, "");
   const act = C.modules.filter((m) => modStatus(m.id) === "active"), open = C.modules.filter((m) => modStatus(m.id) === "todo").slice(0, 2);
   const ctx = { drills: DR.map((d) => ({ id: d.id, title: d.title, lvl: d.lvl, track: d.track })),
+    res: C.modules.flatMap((m) => m.res.filter((r) => /^https?:/.test(r[2])).map(([k, t, u]) => [k, t, u, m.id])),
     modules: act.concat(open).slice(0, 5).map((m) => ({ id: m.id, t: m.t, status: modStatus(m.id), track: TRACK_OF_AREA[stageOf(m).area], checks: m.checks.map(strip) })) };
   if (JSON.stringify(ctx) !== JSON.stringify(S.ctx)) { S.ctx = ctx; save(); }
 }

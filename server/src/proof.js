@@ -55,7 +55,7 @@ Reply with JSON only, no prose:
 /** Create one question from a random recent chunk. Without `force` (the daily cron), only when none exists today. */
 export async function generate(db, env, { now = new Date(), fetch: f, force = false } = {}) {
   const day = today(env, now);
-  const made = await db.prepare("SELECT count(*) AS n FROM questions WHERE day = ? AND check_key IS NULL").bind(day).first("n");
+  const made = await db.prepare("SELECT count(*) AS n FROM questions WHERE day = ? AND check_key IS NULL AND gap_id IS NULL").bind(day).first("n");
   if (!force && made > 0) return { created: false, reason: "already one today" };
   if (made >= MAX_NEW_PER_DAY) throw bad(`At most ${MAX_NEW_PER_DAY} new questions a day: review instead.`, 429);
   if (!ready(env, "question_gen")) throw bad("No AI provider is available for question generation.", 503);
@@ -134,7 +134,7 @@ export async function session(db, env, { now = new Date() } = {}) {
   const [due, done, made, upcoming, totals] = await db.batch([
     db.prepare("SELECT id, prompt, concept, project, kind, track, reps, lapses, due, day FROM questions WHERE retired = 0 AND due <= ? ORDER BY reps = 0, due LIMIT 50").bind(day),
     db.prepare("SELECT r.question_id, r.score, r.pasted, r.due, q.concept, q.prompt FROM reviews r JOIN questions q ON q.id = r.question_id WHERE r.day = ? ORDER BY r.at").bind(day),
-    db.prepare("SELECT count(*) AS n FROM questions WHERE day = ? AND check_key IS NULL").bind(day),
+    db.prepare("SELECT count(*) AS n FROM questions WHERE day = ? AND check_key IS NULL AND gap_id IS NULL").bind(day),
     db.prepare("SELECT due, count(*) AS n FROM questions WHERE retired = 0 AND due > ? GROUP BY due ORDER BY due LIMIT 10").bind(day),
     db.prepare("SELECT (SELECT count(*) FROM questions WHERE retired = 0) AS questions, (SELECT count(*) FROM reviews) AS reviews, (SELECT count(*) FROM reviews WHERE pasted = 1) AS pasted")
   ]);

@@ -5,6 +5,7 @@
 import { ask, mastery, generateCheck, today, parseJSON } from "./proof.js";
 import { ready } from "./ai.js";
 import { recent } from "./sessions.js";
+import { openGapsSummary, createGap, morePractice } from "./gaps.js";
 
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const KEYS = ["drills", "practice", "path", "log", "ctx"];
@@ -16,8 +17,10 @@ From the evidence in the source, plan TOMORROW. Choose:
 - "module": one Path module id from the candidates. Keep the active module unless all its exit checks are proven.
 - "checks": 1 or 2 indexes of that module's exit checks to test tomorrow, unproven first.
 - "concepts": up to 3 weak concepts (from the mastery list) to revisit.
+- "gap": the id of one open weak spot to practise tomorrow (the oldest or least proven one), or null if there is none.
+- "new_gap": if the evidence (tutor sessions, repeated failures, his reflections) shows a concept he misunderstands that is not already an open weak spot, name it in 2 to 6 words (e.g. "numpy axes and keepdims"); otherwise null. Be selective: one real misunderstanding, not every hard exercise.
 - "why": one or two short sentences addressed to Matis ("you…"): what the evidence shows, and the bar for tomorrow. Specific, direct, never flattering.
-Reply with JSON only: {"drill": "<id>", "module": "<id>", "checks": [0], "concepts": ["..."], "why": "..."}`;
+Reply with JSON only: {"drill": "<id>", "module": "<id>", "checks": [0], "concepts": ["..."], "gap": null, "new_gap": null, "why": "..."}`;
 
 async function evidence(db, env, now) {
   const kv = Object.fromEntries((await db.prepare(`SELECT k, v FROM kv WHERE k IN (${KEYS.map(() => "?").join(",")})`).bind(...KEYS).all()).results.map((r) => [r.k, JSON.parse(r.v)]));
@@ -27,10 +30,11 @@ async function evidence(db, env, now) {
   const commits = (await db.prepare("SELECT count(*) AS n FROM sources WHERE kind = 'commit' AND created >= ?").bind(since).first("n")) || 0;
   const notes = (await db.prepare("SELECT title, body, updated FROM sources WHERE kind IN ('note', 'journal') AND deleted = 0 AND updated >= ? ORDER BY updated DESC LIMIT 6").bind(since).all()).results;
   const tutor = await recent(db, since.slice(0, 10)).catch(() => []);
-  return { S, m, commits, notes, tutor };
+  const gaps = await openGapsSummary(db, now).catch(() => []);
+  return { S, m, commits, notes, tutor, gaps };
 }
 
-export function summarize({ S, m, commits, notes, tutor }, day) {
+export function summarize({ S, m, commits, notes, tutor, gaps }, day) {
   const drills = S.ctx?.drills || [], mods = S.ctx?.modules || [];
   const dline = (d) => { const st = S.drills?.[d.id] || {}; return `- ${d.id} (L${d.lvl}, ${d.title}): ${st.solved ? `solved${st.hints ? ` with ${st.hints} hints` : ""}` : st.attempts ? `tried ${st.attempts}×, best ${st.best || 0}/${st.total || "?"} tests${st.last ? `, last ${st.last}` : ""}` : "not started"}`; };
   const week = new Date(Date.parse(day) - 7 * 864e5).toISOString().slice(0, 10), by = {};
@@ -42,12 +46,13 @@ export function summarize({ S, m, commits, notes, tutor }, day) {
     `Interview patterns solved: ${solvedPat}.`, "Path module candidates:", ...mods.map(mline),
     `Active minutes last 7 days by area: ${Object.entries(by).map(([a, n]) => `${a} ${Math.round(n)}`).join(", ") || "none"}.`,
     `Weakest concepts (Proof mastery): ${weak.join(", ") || "none yet"}.`, `Commits last 7 days: ${commits}.`,
+    "Open weak spots (topics he is shaky on, with spaced Proof questions):", ...((gaps || []).length ? gaps.map((g) => g.line) : ["- none"]),
     "Where he asked the tutor for help (last 7 days):", ...((tutor || []).length ? tutor : ["- never"]),
     "Recent reflections and notes:", ...((notes || []).length ? notes.map((n) => `- ${n.title}: ${String(n.body || "").replace(/\s+/g, " ").slice(-500)}`) : ["- none this week"])].join("\n");
 }
 
 /** Keep only what exists; fill the gaps deterministically. */
-export function validate(raw, { S, m }) {
+export function validate(raw, { S, m, gaps = [] }) {
   const drills = S.ctx?.drills || [], mods = S.ctx?.modules || [];
   const solved = (id) => !!S.drills?.[id]?.solved;
   const p = raw && typeof raw === "object" ? raw : {};
@@ -59,7 +64,10 @@ export function validate(raw, { S, m }) {
   checks = [...new Set(checks)].slice(0, 2);
   const concepts = (Array.isArray(p.concepts) ? p.concepts : []).filter((c) => typeof c === "string").map((c) => c.trim().toLowerCase().slice(0, 80)).filter(Boolean).slice(0, 3);
   const why = typeof p.why === "string" && p.why.trim() ? p.why.trim().slice(0, 600) : "Default plan: the next unsolved drill and the active module's unproven checks.";
-  return { drill, module: mod ? mod.id : null, checks, concepts, why, fallback: !raw };
+  const g = gaps.find((x) => x.id === p.gap) || gaps[0] || null;
+  const n = typeof p.new_gap === "string" ? p.new_gap.trim().slice(0, 80) : "";
+  const known = (t) => gaps.some((x) => { const a = x.topic.toLowerCase(), b = t.toLowerCase(); return a.includes(b) || b.includes(a); });
+  return { drill, module: mod ? mod.id : null, checks, concepts, gap: g ? g.id : null, gapTopic: g ? g.topic : null, new_gap: n && !known(n) ? n : null, why, fallback: !raw };
 }
 
 export async function getPlan(db, env, { now = new Date() } = {}) {
@@ -81,6 +89,11 @@ export async function plan(db, env, { now = new Date(), fetch: f, force = false 
   p.questions = [];
   for (const i of mod ? p.checks : []) {
     try { const r = await generateCheck(db, env, { key: `${mod.id}#${i}`, title: mod.t, check: mod.checks[i], track: mod.track }, { now, fetch: f }); p.questions.push(r.id); }
+    catch (e) { p.error = e.message; }
+  }
+  if (p.gap) { try { const q = await morePractice(db, env, p.gap, { now, fetch: f }); if (q) p.questions.push(q); } catch (e) { p.error = e.message; } }
+  if (p.new_gap) {
+    try { const g = await createGap(db, env, { topic: p.new_gap, context: `Detected by the planner.\n${(ev.tutor || []).join("\n")}`, origin: "planner" }, { now, fetch: f }); p.newGapId = g.id; p.new_gap = g.topic; if (!p.gap) { p.gap = g.id; p.gapTopic = g.topic; } }
     catch (e) { p.error = e.message; }
   }
   await db.prepare("INSERT INTO plans (day, plan, at) VALUES (?, ?, ?) ON CONFLICT(day) DO UPDATE SET plan = excluded.plan, at = excluded.at").bind(day, JSON.stringify(p), now.toISOString()).run();

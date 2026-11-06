@@ -10,6 +10,7 @@ import { tutor } from "./tutor.js";
 import { importReading } from "./reading.js";
 import { fileThought } from "./capture.js";
 import { explainCard, giveUp } from "./explain.js";
+import { createGap, listGaps, getGap, dropGap } from "./gaps.js";
 
 const j = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -45,6 +46,10 @@ const ROUTES = [
   ["POST", /^\/api\/reading$/, async (c) => importReading(c.db, await c.req.json())],
   ["POST", /^\/api\/capture$/, async (c) => fileThought(c.db, c.env, await c.req.json())],
   ["POST", /^\/api\/explain$/, async (c) => explainCard(c.db, c.env, await c.req.json())],
+  ["GET", /^\/api\/gaps$/, (c) => listGaps(c.db)],
+  ["POST", /^\/api\/gaps$/, async (c) => createGap(c.db, c.env, await c.req.json())],
+  ["GET", /^\/api\/gaps\/([\w-]+)$/, (c, [id]) => getGap(c.db, id)],
+  ["POST", /^\/api\/gaps\/([\w-]+)\/drop$/, (c, [id]) => dropGap(c.db, id)],
   ["POST", /^\/api\/proof\/([\w-]+)\/giveup$/, (c, [id]) => giveUp(c.db, c.env, id)]
 ];
 

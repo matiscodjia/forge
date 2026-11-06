@@ -17,9 +17,10 @@ Decide:
 - "tags": 1 to 3 lowercase tags.
 - "heading": 3 to 7 words summing up the thought.
 - "cards": 0 to 2 review cards {"q": "...", "a": "..."} ONLY for facts or reasoning worth remembering that the thought states correctly. Never invent content he did not write.
+- "gap": if the thought shows a concept he does not understand or struggles with, name it in 2 to 6 words (e.g. "numpy axes and keepdims"); otherwise null.
 - "nudge": one sentence, addressed to him ("you…"), that pushes him one step higher: a sharper question to answer, a gap or mistake in the thought, or the concrete next thing to build. Be direct and demanding, never flattering.
 Write the title, heading, cards and nudge in English, even when the thought is in French. Reply with JSON only:
-{"note": "new", "title": "", "mod": null, "tags": [], "heading": "", "cards": [], "nudge": ""}`;
+{"note": "new", "title": "", "mod": null, "tags": [], "heading": "", "cards": [], "gap": null, "nudge": ""}`;
 
 /** Keep only what exists and is well formed. */
 export function validateFiling(x, { notes, modules }) {
@@ -29,7 +30,8 @@ export function validateFiling(x, { notes, modules }) {
   const mod = mods.has(o.mod) ? o.mod : null;
   const tags = (Array.isArray(o.tags) ? o.tags : []).map((t) => cut(t, 30).toLowerCase().replace(/^#/, "").trim()).filter(Boolean).slice(0, 3);
   const cards = (Array.isArray(o.cards) ? o.cards : []).filter((c) => c && String(c.q || "").trim() && String(c.a || "").trim()).slice(0, 2).map((c) => ({ q: cut(c.q, 300).replace(/\n/g, " ").trim(), a: cut(c.a, 500).replace(/\n/g, " ").trim() }));
-  return { note, title: note === "new" ? cut(o.title, 120).trim() : "", mod, tags, heading: cut(o.heading, 80).trim(), cards, nudge: cut(o.nudge, 280).trim() };
+  const gap = typeof o.gap === "string" && o.gap.trim() ? cut(o.gap, 80).trim() : null;
+  return { note, title: note === "new" ? cut(o.title, 120).trim() : "", mod, tags, heading: cut(o.heading, 80).trim(), cards, gap, nudge: cut(o.nudge, 280).trim() };
 }
 
 /** POST /api/capture { text, where: {label, mod}, notes: [{id, title, mod}], modules: [{id, t}] } → filing decision */
