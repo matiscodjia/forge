@@ -3,6 +3,7 @@
 // The client applies the decision to its notes (they sync and feed the brain). Without a model, it goes to Inbox.
 import { ask, parseJSON } from "./proof.js";
 import { ready } from "./ai.js";
+import { recent } from "./sessions.js";
 
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const cut = (s, n) => String(s ?? "").slice(0, n);
@@ -45,6 +46,8 @@ export async function fileThought(db, env, b, { now = new Date(), fetch: f } = {
     { id: "capture:modules", kind: "modules", visibility: "ai", title: "Path modules", text: modules.map((m) => `- ${m.id}: ${m.t}`).join("\n") },
     { id: "capture:thought", kind: "thought", visibility: "ai", title: "The thought", text }
   ];
+  const tut = await recent(db, new Date(now.getTime() - 3 * 864e5).toISOString().slice(0, 10), 5).catch(() => []);
+  if (tut.length) items.splice(3, 0, { id: "capture:tutor", kind: "tutor", visibility: "ai", title: "What he recently asked the tutor", text: tut.join("\n") });
   try {
     const { text: reply } = await ask(db, env, "assistant", items, FILE, "", { now, fetch: f, maxTokens: 500 });
     const x = parseJSON(reply); if (!x) return inbox;

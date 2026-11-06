@@ -4,6 +4,7 @@
 // an unusable reply falls back to a deterministic plan, so the app never waits on the model.
 import { ask, mastery, generateCheck, today, parseJSON } from "./proof.js";
 import { ready } from "./ai.js";
+import { recent } from "./sessions.js";
 
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const KEYS = ["drills", "practice", "path", "log", "ctx"];
@@ -25,10 +26,11 @@ async function evidence(db, env, now) {
   const since = new Date(now.getTime() - 7 * 864e5).toISOString();
   const commits = (await db.prepare("SELECT count(*) AS n FROM sources WHERE kind = 'commit' AND created >= ?").bind(since).first("n")) || 0;
   const notes = (await db.prepare("SELECT title, body, updated FROM sources WHERE kind IN ('note', 'journal') AND deleted = 0 AND updated >= ? ORDER BY updated DESC LIMIT 6").bind(since).all()).results;
-  return { S, m, commits, notes };
+  const tutor = await recent(db, since.slice(0, 10)).catch(() => []);
+  return { S, m, commits, notes, tutor };
 }
 
-export function summarize({ S, m, commits, notes }, day) {
+export function summarize({ S, m, commits, notes, tutor }, day) {
   const drills = S.ctx?.drills || [], mods = S.ctx?.modules || [];
   const dline = (d) => { const st = S.drills?.[d.id] || {}; return `- ${d.id} (L${d.lvl}, ${d.title}): ${st.solved ? `solved${st.hints ? ` with ${st.hints} hints` : ""}` : st.attempts ? `tried ${st.attempts}×, best ${st.best || 0}/${st.total || "?"} tests${st.last ? `, last ${st.last}` : ""}` : "not started"}`; };
   const week = new Date(Date.parse(day) - 7 * 864e5).toISOString().slice(0, 10), by = {};
@@ -40,6 +42,7 @@ export function summarize({ S, m, commits, notes }, day) {
     `Interview patterns solved: ${solvedPat}.`, "Path module candidates:", ...mods.map(mline),
     `Active minutes last 7 days by area: ${Object.entries(by).map(([a, n]) => `${a} ${Math.round(n)}`).join(", ") || "none"}.`,
     `Weakest concepts (Proof mastery): ${weak.join(", ") || "none yet"}.`, `Commits last 7 days: ${commits}.`,
+    "Where he asked the tutor for help (last 7 days):", ...((tutor || []).length ? tutor : ["- never"]),
     "Recent reflections and notes:", ...((notes || []).length ? notes.map((n) => `- ${n.title}: ${String(n.body || "").replace(/\s+/g, " ").slice(-500)}`) : ["- none this week"])].join("\n");
 }
 

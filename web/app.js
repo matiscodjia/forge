@@ -54,7 +54,7 @@ const BANK = 3;                  /* observed blocks needed to bank a day */
 
 /* ---------------- state ---------------- */
 const KEY = "forge.v1";
-const blank = () => ({ v: 2, days: {}, weeks: {}, practice: {}, code: {}, drills: {}, activity: {}, ctx: null, mocks: [], theory: [], skills: {}, pipeline: [], mock: null, theoryRun: null, sel: "two-sum", drillSel: null, arenaCol: "ml", theme: null,
+const blank = () => ({ v: 2, days: {}, weeks: {}, practice: {}, code: {}, drills: {}, activity: {}, ctx: null, tutor: {}, mocks: [], theory: [], skills: {}, pipeline: [], mock: null, theoryRun: null, sel: "two-sum", drillSel: null, arenaCol: "ml", theme: null,
   path: {}, notes: [], srs: {}, revDays: {}, log: [], lastExport: null });
 const hydrate = (d) => { const x = Object.assign(blank(), d || {}); ["notes", "log", "mocks", "theory", "pipeline"].forEach((k) => { if (!Array.isArray(x[k])) x[k] = []; }); ["path", "srs", "revDays", "days", "weeks", "practice", "code", "skills", "drills", "activity"].forEach((k) => { if (!x[k] || typeof x[k] !== "object" || Array.isArray(x[k])) x[k] = {}; }); x.v = 2; return x; };
 let S;
@@ -468,7 +468,9 @@ const RUNNER_TXT = { idle: "python loads on first run", loading: "loading python
 
 /* ---- arena: one exercise, one editor, tests on the left, output below, a tutor that never gives the answer ---- */
 let cm = null, pickOpen = false, pickCol = null, tutorOpen = false;
-const lastRun = {}, tutorMsgs = {};
+const lastRun = {};
+/* Tutor conversations persist (synced) so they survive reloads; the server keeps them per day for the planner. */
+const tutorOf = (id) => { const T = S.tutor = S.tutor || {}; return (T[id] = T[id] || []); };
 const parseTests = (src) => [...String(src).matchAll(/^def (test_\w+)\(u\):[ \t]*\n[ \t]*(?:"""([^"]*)""")?/gm)].map((m) => ({ name: m[1], label: (m[2] || m[1].slice(5).replace(/_/g, " ")).trim().split("\n")[0] }));
 function starter(p) { return `${p.sig}\n    # 1. Restate the problem. 2. Brute force + complexity. 3. Optimise.\n    pass\n`; }
 function examplesFor(p) {
@@ -533,7 +535,7 @@ function pickerHtml(it) {
 }
 function tutorHtml(it) {
   if (!tutorOpen) return `<button class="ask" id="askBtn" type="button"><i></i>Stuck? Ask the tutor <kbd>⌘I</kbd></button>`;
-  const msgs = tutorMsgs[itemId(it)] || [];
+  const msgs = (S.tutor && S.tutor[itemId(it)]) || [];
   return `<div class="tutor" role="dialog" aria-label="Tutor"><header><b>Tutor</b><button type="button" id="tclose">hints only · <kbd>esc</kbd></button></header>
     <div class="msgs" id="tmsgs">${msgs.length ? msgs.map((m) => m.role === "me" ? `<div class="me">${esc(m.text)}</div>` : `<div class="ai"><span class="who">tutor${m.guarded ? " · rephrased to keep the answer yours" : ""}</span>${inline(m.text)}</div>`).join("") : `<div class="hello">Say what you tried and where it breaks. The tutor points at the idea and asks a question back; it never writes the fix. Each reply counts as a hint.</div>`}</div>
     <div class="ctx"><span class="bare">sees</span><span>exercise</span><span>your code</span><span>last run</span><span class="bare" style="margin-left:auto">never the solution</span></div>
@@ -604,12 +606,13 @@ function wireTutor(it) {
   $("#tform").onsubmit = async (e) => {
     e.preventDefault(); const text = inp.value.trim(); if (!text) return;
     if (!(Sync && Sync.enabled)) return toast("The tutor runs on the Forge Worker: open Forge from its workers.dev address.");
-    const msgs = tutorMsgs[id] = (tutorMsgs[id] || []).concat({ role: "me", text });
+    const msgs = tutorOf(id), day = TODAY(); msgs.push({ role: "me", text, day });
+    if (msgs.length > 40) msgs.splice(0, msgs.length - 40);
     inp.value = ""; toggleTutor(it, true); const b = $("#tmsgs"); b.insertAdjacentHTML("beforeend", `<div class="ai faint" id="tthink"><span class="who">tutor</span>thinking…</div>`); b.scrollTop = b.scrollHeight;
     try {
-      const r = await api("POST", "/api/tutor", { kind: it.col === "ml" ? "drill" : "problem", id, title: it.col === "ml" ? it.d.title : `${it.p.pattern}: ${it.p.fn}`, desc: it.col === "ml" ? it.d.desc : it.p.text, tests: it.col === "ml" ? parseTests(it.d.tests).map((t) => t.label) : [], code: cm ? cm.getValue() : "", run: runText(it), messages: msgs.map(({ role, text }) => ({ role, text })) });
-      msgs.push({ role: "tutor", text: r.reply, guarded: r.guarded }); progOf(it).hints++; save();
-    } catch (err) { msgs.push({ role: "tutor", text: `Couldn't reach the tutor: ${err.message}` }); }
+      const r = await api("POST", "/api/tutor", { kind: it.col === "ml" ? "drill" : "problem", id, title: it.col === "ml" ? it.d.title : `${it.p.pattern}: ${it.p.fn}`, desc: it.col === "ml" ? it.d.desc : it.p.text, tests: it.col === "ml" ? parseTests(it.d.tests).map((t) => t.label) : [], code: cm ? cm.getValue() : "", run: runText(it), messages: msgs.filter((m) => m.day === day && !m.error).map(({ role, text }) => ({ role, text })) });
+      msgs.push({ role: "tutor", text: r.reply, guarded: r.guarded, day }); progOf(it).hints++; save();
+    } catch (err) { msgs.push({ role: "tutor", text: `Couldn't reach the tutor: ${err.message}`, day, error: true }); }
     if (route() === "arena" && itemId(arenaItem()) === id) { toggleTutor(it, true); const f = $("#afoot"); if (f) f.innerHTML = footHtml(it); }
   };
 }

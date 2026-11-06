@@ -6,6 +6,7 @@ import { resolveRoute } from "./router.js";
 import { callLLM, d1Audit } from "./llm.js";
 import { aiConfig, ready } from "./ai.js";
 import { SOLUTIONS } from "./drills.js";
+import { remember, earlier } from "./sessions.js";
 
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const cut = (s, n) => String(s ?? "").slice(0, n);
@@ -59,8 +60,11 @@ export async function tutor(db, env, body, { now = new Date(), fetch: f } = {}) 
     { id: `code:${id}`, kind: "code", visibility: "ai", title: "his current code", text: cut(body.code, 8000) || "(empty)" },
     { id: `run:${id}`, kind: "run", visibility: "ai", title: "last test run", text: cut(body.run, 3000) || "(not run yet)" }
   ];
+  const before = await earlier(db, env, id, now).catch(() => "");
+  if (before) items.push({ id: `tutor:earlier:${id}`, kind: "tutor", visibility: "ai", title: "his earlier tutor sessions on this exercise (do not repeat the same hints; build on them)", text: before });
   const lastPlan = await db.prepare("SELECT plan FROM plans ORDER BY day DESC LIMIT 1").first().catch(() => null);
   if (lastPlan) { try { const p = JSON.parse(lastPlan.plan); items.push({ id: "learner:plan", kind: "learner", visibility: "ai", title: "what the planner knows about him", text: `${p.why || ""}${(p.concepts || []).length ? `\nWeak concepts: ${p.concepts.join(", ")}` : ""}` }); } catch (e) {} }
+  const keep = (reply) => remember(db, env, { id, kind: body.kind, title: body.title, code: body.code, run: body.run, messages: msgs, reply }, now).catch(() => {});
   const convo = msgs.map((m) => `${m.role === "me" ? "Matis" : "Tutor"}: ${cut(m.text, 1500)}`).join("\n");
   const cfg = aiConfig(env), { provider, decision } = resolveRoute("tutor", items, cfg);
   let guarded = null;
@@ -68,8 +72,9 @@ export async function tutor(db, env, body, { now = new Date(), fetch: f } = {}) 
     const ctx = contextGate(items, provider, { task: "tutor", decision, now: () => now.toISOString() });
     const out = await callLLM(ctx, { instruction: TUTOR + extra, question: convo, maxTokens: 300 }, { fetch: f || fetch, env, providers: cfg.providers, audit: d1Audit(db) });
     const reply = out.text.replace(/\s*\[src:[^\]]+\]/g, "").trim();
-    if (!leak(reply, body.kind === "drill" ? id : null)) return { reply, guarded };
+    if (!leak(reply, body.kind === "drill" ? id : null)) { await keep(reply); return { reply, guarded }; }
     guarded = "retried";
   }
+  await keep(FALLBACK);
   return { reply: FALLBACK, guarded: "replaced" };
 }
