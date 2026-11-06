@@ -55,7 +55,7 @@ export function validate(raw, { S, m }) {
   if (mod && !checks.length) checks = (mod.checks || []).map((_, i) => i).filter((i) => !proven(i));
   checks = [...new Set(checks)].slice(0, 2);
   const concepts = (Array.isArray(p.concepts) ? p.concepts : []).filter((c) => typeof c === "string").map((c) => c.trim().toLowerCase().slice(0, 80)).filter(Boolean).slice(0, 3);
-  const why = typeof p.why === "string" && p.why.trim() ? p.why.trim().slice(0, 300) : "Default plan: the next unsolved drill and the active module's unproven checks.";
+  const why = typeof p.why === "string" && p.why.trim() ? p.why.trim().slice(0, 600) : "Default plan: the next unsolved drill and the active module's unproven checks.";
   return { drill, module: mod ? mod.id : null, checks, concepts, why, fallback: !raw };
 }
 
