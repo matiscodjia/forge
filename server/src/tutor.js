@@ -16,7 +16,7 @@ Rules:
 - At most one short inline expression in backticks (a name, a shape, one function name).
 - Point at the line or the idea where his reasoning breaks, then ask ONE precise question that lets him find the fix himself.
 - If he asks for the answer or the fixed line, refuse in one short sentence and give a smaller hint instead.
-- 2 to 4 sentences, plain text, no headings, no lists. Answer in the language he writes in.`;
+- 2 to 4 sentences, plain text, no headings, no lists. Answer in English, even when he writes in French.`;
 
 const STRICT = `\nYour previous draft gave code away. This time: no code at all, not even inline. One conceptual hint and one question.`;
 const FALLBACK = "That would give the answer away. Write the shape of every array next to each line of your function, check them against the failing test, then run the tests again.";

@@ -1158,7 +1158,6 @@ function sourceView(v, id) {
 VIEWS.context = (v) => {
   if (needsWorker(v)) return;
   v.innerHTML = `
-  <section class="card" id="warm"></section>
   <section class="card"><div class="card-h"><h3>What the AI saw</h3></div>
     <p class="muted" style="margin:0;max-width:72ch">The assistant reads everything in Forge: notes, journal, sources, code, your evidence. Keep what is truly private off Forge. Every call still goes through one gate that redacts emails and phone numbers and records here exactly which items were sent, to which provider.</p></section>
   <section class="card"><div class="card-h"><h3>Calls</h3><span class="muted" style="font-size:13px">Latest 100</span></div><div id="calls"><div class="faint">Loading…</div></div></section>`;
@@ -1169,7 +1168,6 @@ VIEWS.context = (v) => {
       <div class="next-list" style="margin-top:8px">${c.items.map((it) => it.source_id ? `<a class="next-item ctx" href="${sourceHref(it)}"><span>${esc(it.title || it.id)}</span><span class="pill">${KINDS[it.kind] || it.kind || ""}</span></a>` : /^(exercise|code|run):/.test(it.id) ? `<div class="next-item ctx faint">${esc(it.id)} · sent with this call only, not stored</div>` : `<div class="next-item ctx faint">${esc(it.id)} · deleted since</div>`).join("") || `<div class="faint">No context items.</div>`}</div></details>`).join("")}</div>`
       : `<div class="empty"><p style="max-width:56ch;margin:0 auto">No AI call yet. When the tutor, grader or wiki agent calls a model, each call appears here with the exact items it was given.</p></div>`;
   }, (e) => { const el = $("#calls"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
-  warmCard();
 };
 
 /* ---------------- proof loop: daily questions you can't fake ---------------- */
@@ -1403,33 +1401,6 @@ function celebrate() {
 }
 globalThis.ForgeFx = { celebrate };
 
-/* ---------------- warm-up: one real call per AI task ---------------- */
-const WARM_STEPS = [["tutor", "Tutor", "a hint on a failing softmax"], ["question_gen", "Questions", "a Proof question from your brain"], ["grading", "Grading", "a sample answer graded"], ["planner", "Planner", "today's plan, written now"], ["assistant", "Assistant", "a thought filed"]];
-const WARM_VER = "2026-11-06";
-let warmRunning = false;
-function warmCard() {
-  const el = $("#warm"); if (!el) return;
-  let rec = null; try { rec = JSON.parse(lsGet("forge.warmup") || "null"); } catch (e) {}
-  const res = (k) => rec && rec.results.find((r) => r.step === k);
-  el.innerHTML = `<div class="card-h"><h3>Warm-up</h3><span class="row" style="gap:10px"><span class="muted" style="font-size:13px">${rec ? `last run ${when(new Date(rec.at).toISOString())}` : "one real call per AI task"}</span><button class="btn small" id="warmGo" ${warmRunning ? "disabled" : ""}>${warmRunning ? "Running…" : rec ? "Run again" : "Run"}</button></span></div>
-    <div class="tests" style="font-size:13px">${WARM_STEPS.map(([k, t, what]) => { const r = res(k); return `<div class="${r ? "y" : ""}" style="grid-template-columns:18px 96px minmax(0,1fr) auto;gap:10px;align-items:baseline"><span class="${r ? (r.ok ? "ok" : "ko") : ""}">${r ? (r.ok ? "✓" : "✗") : "·"}</span><b style="font-family:var(--body);font-weight:500">${t}</b><span class="muted" style="font-family:var(--body);font-size:14px">${r ? esc(r.ok ? r.sample : r.error) : what}</span><span class="faint">${r ? `${esc(r.provider || "")} · ${(r.ms / 1000).toFixed(1)}s` : ""}</span></div>`; }).join("")}</div>`;
-  $("#warmGo").onclick = () => runWarmup();
-}
-async function runWarmup() {
-  if (warmRunning || !(Sync && Sync.enabled)) return; warmRunning = true;
-  const rec = { at: Date.now(), ver: WARM_VER, results: [] };
-  warmCard();
-  for (const [k] of WARM_STEPS) {
-    let r; try { r = await api("POST", `/api/warmup/${k}`, {}); } catch (e) { r = { step: k, ok: false, error: e.message, ms: 0 }; }
-    rec.results.push(r); lsSet("forge.warmup", JSON.stringify(rec)); warmCard();
-  }
-  warmRunning = false; warmCard();
-  const bad = rec.results.filter((r) => !r.ok);
-  console.info("[forge] warm-up", rec.results);
-  toast(bad.length ? `Warm-up: ${bad.length} step${bad.length === 1 ? "" : "s"} failed (see Context).` : "Warm-up: every AI task answered.");
-  api("GET", "/api/plan").then((p) => { todayPlan = p && p.plan; if (route() === "now") render(); }, () => {}); refreshProof();
-}
-
 /* ---------------- observation: active time, attributed to what is on screen ---------------- */
 let lastInput = 0;
 ["keydown", "pointerdown", "wheel", "input"].forEach((e) => document.addEventListener(e, () => { lastInput = Date.now(); }, { passive: true, capture: true }));
@@ -1481,8 +1452,6 @@ async function dailyWorker() {
   } catch (e) {}
   try { const a = await api("GET", "/api/activity"); commitDays = a.commits || {}; localStorage.setItem("forge.commits", JSON.stringify(commitDays)); } catch (e) {}
   nav(); if (["now", "today", "path", "skills"].includes(route())) render();
-  let rec = null; try { rec = JSON.parse(lsGet("forge.warmup") || "null"); } catch (e) {}
-  if (!rec || rec.ver !== WARM_VER) runWarmup();
 }
 
 /* ---------------- boot ---------------- */

@@ -9,7 +9,6 @@ import { ready, routing } from "./ai.js";
 import { tutor } from "./tutor.js";
 import { importReading } from "./reading.js";
 import { fileThought } from "./capture.js";
-import { warmup } from "./warmup.js";
 
 const j = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -43,8 +42,7 @@ const ROUTES = [
   ["POST", /^\/api\/plan$/, (c) => plan(c.db, c.env, { force: true })],
   ["GET", /^\/api\/activity$/, (c) => activity(c.db)],
   ["POST", /^\/api\/reading$/, async (c) => importReading(c.db, await c.req.json())],
-  ["POST", /^\/api\/capture$/, async (c) => fileThought(c.db, c.env, await c.req.json())],
-  ["POST", /^\/api\/warmup\/(\w+)$/, (c, [step]) => warmup(c.db, c.env, step)]
+  ["POST", /^\/api\/capture$/, async (c) => fileThought(c.db, c.env, await c.req.json())]
 ];
 
 export default {

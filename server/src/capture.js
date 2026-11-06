@@ -17,7 +17,7 @@ Decide:
 - "heading": 3 to 7 words summing up the thought.
 - "cards": 0 to 2 review cards {"q": "...", "a": "..."} ONLY for facts or reasoning worth remembering that the thought states correctly. Never invent content he did not write.
 - "nudge": one sentence, addressed to him ("you…"), that pushes him one step higher: a sharper question to answer, a gap or mistake in the thought, or the concrete next thing to build. Be direct and demanding, never flattering.
-Write in the language of the thought. Reply with JSON only:
+Write the title, heading, cards and nudge in English, even when the thought is in French. Reply with JSON only:
 {"note": "new", "title": "", "mod": null, "tags": [], "heading": "", "cards": [], "nudge": ""}`;
 
 /** Keep only what exists and is well formed. */

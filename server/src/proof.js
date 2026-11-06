@@ -37,7 +37,7 @@ const GEN = `You write ONE exam question that proves Matis really understands th
 Rules:
 - Answerable from memory, without seeing the source, in 3 to 8 sentences (or a few lines of code).
 - Ask why/how/what-if: explain a design choice, derive a formula, predict a behaviour, compare with an alternative, or write a small piece of code. Never ask for line numbers, file names, variable names or trivia.
-- Write in the language of the source.
+- Write in English, whatever the language of the source.
 Reply with JSON only, no prose:
 {"concept": "<2-4 word concept, lowercase>", "track": "<one of: coding (algorithms, interview coding), ml (machine/deep learning, LLMs), math, sys (PyTorch, systems, GPU, Rust/C performance), ship (engineering of his own projects), eng (English), reach (visibility)>", "question": "<the question>", "rubric": ["<key point a full answer must contain>", "<3 to 5 points>"]}`;
 
