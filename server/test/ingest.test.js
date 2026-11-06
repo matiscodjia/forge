@@ -115,16 +115,16 @@ test("GitHub sync: chunks per function with path + lines; re-sync of unchanged c
     await syncAll(call, id);
     assert.equal((await call("GET", "/api/search?q=Tracking")).results.length, 0);
 
-    // Repo visibility cascades to every chunk.
-    await call("PATCH", `/api/repos/${id}`, { visibility: "private" });
-    assert.equal((await env.DB.prepare("SELECT count(*) AS n FROM chunks c JOIN sources s ON s.id = c.source_id WHERE s.repo_id = ? AND c.visibility != 'private'").bind(id).first()).n, 0);
+    // No confidentiality levels: a repo can't be hidden from the assistant any more.
+    await call("PATCH", `/api/repos/${id}`, { visibility: "private", branch: "main" });
+    assert.equal((await env.DB.prepare("SELECT count(*) AS n FROM chunks c JOIN sources s ON s.id = c.source_id WHERE s.repo_id = ? AND c.visibility != 'ai'").bind(id).first()).n, 0);
     const repos = await call("GET", "/api/repos");
     assert.equal(repos[0].files, 1); assert.ok(repos[0].chunks >= 6);
     assert.ok(env.DB.counter.max <= 50, `a request used ${env.DB.counter.max} D1 queries`);
   } finally { globalThis.fetch = globalThis.__realFetch; }
 });
 
-test("course upload in batches, search with snippets, visibility toggle reaches chunks", async () => {
+test("course upload in batches, search with snippets, everything readable by the assistant", async () => {
   const { call, env } = setup();
   const { id } = await call("POST", "/api/sources", { kind: "course", title: "CS231n lecture 4", project: "cs231n", origin: "lecture4.pdf" });
   const pages = Array.from({ length: 50 }, (_, i) => ({ text: `Page ${i + 1}. Backpropagation computes gradients with the chain rule. ${"filler ".repeat(40)}`, meta: { page: i + 1 } }));
@@ -133,16 +133,15 @@ test("course upload in batches, search with snippets, visibility toggle reaches 
   assert.equal(src.chunks.length, 50); assert.equal(src.chunks[49].meta.page, 50); assert.equal(src.visibility, "ai");
   const r = (await call("GET", "/api/search?q=chain rul")).results;
   assert.ok(r.length > 0 && r[0].snip.includes("\u0001"), "prefix match with highlight markers");
-  await call("PATCH", `/api/sources/${id}`, { visibility: "private" });
-  assert.equal((await env.DB.prepare("SELECT count(*) AS n FROM chunks WHERE source_id = ? AND visibility = 'private'").bind(id).first()).n, 50);
-  await assert.rejects(call("PATCH", `/api/sources/${id}`, { visibility: "public" }), (e) => e.status === 400);
+  await assert.rejects(call("PATCH", `/api/sources/${id}`, { visibility: "private" }), (e) => e.status === 400, "visibility is not a setting any more");
+  assert.equal((await env.DB.prepare("SELECT count(*) AS n FROM chunks WHERE source_id = ? AND visibility = 'ai'").bind(id).first()).n, 50);
   await assert.rejects(call("POST", "/api/sources", { kind: "note", title: "x" }), (e) => e.status === 400);
   await call("DELETE", `/api/sources/${id}`);
   assert.equal((await env.DB.prepare("SELECT count(*) AS n FROM chunks").first()).n, 0);
   assert.equal((await call("GET", "/api/search?q=\"; DROP TABLE chunks; --")).results.length, 0, "FTS syntax in the query is neutralised");
 });
 
-test("synced notes become chunks with their visibility; journal entries stay private", async () => {
+test("synced notes and journal entries become chunks the assistant can read", async () => {
   const { call } = setup();
   const notes = [
     { id: "n1", kind: "note", title: "Attention", body: "## Scaling\nDivide by sqrt(d_k) to keep variance near one.", tags: [], updated: 10 },
@@ -150,8 +149,8 @@ test("synced notes become chunks with their visibility; journal entries stay pri
   ];
   await call("PUT", "/api/state", { kv: {}, notes });
   const r = (await call("GET", "/api/search?q=variance")).results;
-  assert.equal(r[0].source_id, "n1"); assert.equal(r[0].visibility, "trusted"); assert.equal(r[0].meta.heading, "Scaling");
-  assert.equal((await call("GET", "/api/search?q=nervous")).results[0].visibility, "private");
+  assert.equal(r[0].source_id, "n1"); assert.equal(r[0].visibility, "ai"); assert.equal(r[0].meta.heading, "Scaling");
+  assert.equal((await call("GET", "/api/search?q=nervous")).results[0].visibility, "ai");
   await assert.rejects(call("PATCH", "/api/sources/n1", { visibility: "ai" }), (e) => e.status === 409);
   await call("PUT", "/api/state", { kv: {}, notes: [{ id: "n1", deleted: true, updated: 20 }] });
   assert.equal((await call("GET", "/api/search?q=variance")).results.length, 0);

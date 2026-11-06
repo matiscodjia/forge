@@ -9,12 +9,13 @@ const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const KEYS = ["drills", "practice", "path", "log", "ctx"];
 
 export const PLAN = `You are the planning agent of Forge, Matis's training system (goal: ML research engineer interviews by March 2027).
+Your job is to push him higher every day. He asked for a demanding coach: when he succeeds, raise the bar (harder drill, harder checks, the next module); when he stalls or idles, say it plainly. Read his recent reflections: they tell you what he finds hard.
 From the evidence in the source, plan TOMORROW. Choose:
 - "drill": one Arena drill id from the list. Prefer a drill he tried and failed recently; otherwise the next unsolved one in order. Never a solved one unless all are solved.
 - "module": one Path module id from the candidates. Keep the active module unless all its exit checks are proven.
 - "checks": 1 or 2 indexes of that module's exit checks to test tomorrow, unproven first.
 - "concepts": up to 3 weak concepts (from the mastery list) to revisit.
-- "why": one short sentence addressed to Matis ("you…") explaining the plan from the evidence.
+- "why": one or two short sentences addressed to Matis ("you…"): what the evidence shows, and the bar for tomorrow. Specific, direct, never flattering.
 Reply with JSON only: {"drill": "<id>", "module": "<id>", "checks": [0], "concepts": ["..."], "why": "..."}`;
 
 async function evidence(db, env, now) {
@@ -23,10 +24,11 @@ async function evidence(db, env, now) {
   const m = await mastery(db, env, { now });
   const since = new Date(now.getTime() - 7 * 864e5).toISOString();
   const commits = (await db.prepare("SELECT count(*) AS n FROM sources WHERE kind = 'commit' AND created >= ?").bind(since).first("n")) || 0;
-  return { S, m, commits };
+  const notes = (await db.prepare("SELECT title, body, updated FROM sources WHERE kind IN ('note', 'journal') AND deleted = 0 AND updated >= ? ORDER BY updated DESC LIMIT 6").bind(since).all()).results;
+  return { S, m, commits, notes };
 }
 
-export function summarize({ S, m, commits }, day) {
+export function summarize({ S, m, commits, notes }, day) {
   const drills = S.ctx?.drills || [], mods = S.ctx?.modules || [];
   const dline = (d) => { const st = S.drills?.[d.id] || {}; return `- ${d.id} (L${d.lvl}, ${d.title}): ${st.solved ? `solved${st.hints ? ` with ${st.hints} hints` : ""}` : st.attempts ? `tried ${st.attempts}×, best ${st.best || 0}/${st.total || "?"} tests${st.last ? `, last ${st.last}` : ""}` : "not started"}`; };
   const week = new Date(Date.parse(day) - 7 * 864e5).toISOString().slice(0, 10), by = {};
@@ -37,7 +39,8 @@ export function summarize({ S, m, commits }, day) {
   return [`Today is ${day}.`, "Arena drills (in order):", ...drills.map(dline),
     `Interview patterns solved: ${solvedPat}.`, "Path module candidates:", ...mods.map(mline),
     `Active minutes last 7 days by area: ${Object.entries(by).map(([a, n]) => `${a} ${Math.round(n)}`).join(", ") || "none"}.`,
-    `Weakest concepts (Proof mastery): ${weak.join(", ") || "none yet"}.`, `Commits last 7 days: ${commits}.`].join("\n");
+    `Weakest concepts (Proof mastery): ${weak.join(", ") || "none yet"}.`, `Commits last 7 days: ${commits}.`,
+    "Recent reflections and notes:", ...((notes || []).length ? notes.map((n) => `- ${n.title}: ${String(n.body || "").replace(/\s+/g, " ").slice(-500)}`) : ["- none this week"])].join("\n");
 }
 
 /** Keep only what exists; fill the gaps deterministically. */
@@ -68,7 +71,7 @@ export async function plan(db, env, { now = new Date(), fetch: f, force = false 
   if (!ready(env, "planner")) throw bad("No AI provider is available for the planner.", 503);
   const ev = await evidence(db, env, now);
   if (!(ev.S.ctx?.drills || []).length) throw bad("Open Forge once so the planner knows the drills and modules.", 409);
-  const item = { id: `evidence:${day}`, kind: "summary", visibility: "trusted", title: "Matis's evidence", text: summarize(ev, day) };
+  const item = { id: `evidence:${day}`, kind: "summary", visibility: "ai", title: "Matis's evidence", text: summarize(ev, day) };
   const { text } = await ask(db, env, "planner", [item], PLAN, "", { now, fetch: f, maxTokens: 400 });
   const p = validate(parseJSON(text), ev);
   const mod = (ev.S.ctx.modules || []).find((x) => x.id === p.module);

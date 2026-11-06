@@ -6,7 +6,7 @@ const UPLOAD_KINDS = new Set(["course", "file", "decision"]);
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 20);
-const vis = (v, dflt) => { const x = v ?? dflt; if (!VIS.has(x)) throw bad(`visibility "${x}" is invalid`); return x; };
+const vis = () => "ai"; // no confidentiality levels any more: everything feeds the assistant
 
 export async function listSources(db) {
   const r = await db.prepare(
@@ -51,9 +51,8 @@ export async function appendParts(db, id, b) {
 export async function patchSource(db, id, b) {
   const s = await db.prepare("SELECT kind FROM sources WHERE id = ? AND deleted = 0").bind(id).first();
   if (!s) throw bad("Source not found", 404);
-  if (s.kind === "note" || s.kind === "journal") throw bad("Change a note's visibility in the Library, so every device agrees", 409);
+  if (s.kind === "note" || s.kind === "journal") throw bad("Edit notes in the Library", 409);
   const sets = [], args = [];
-  if (b.visibility !== undefined) { sets.push("visibility = ?"); args.push(vis(b.visibility)); }
   if (b.title !== undefined) { sets.push("title = ?"); args.push(String(b.title).slice(0, 300)); }
   if (b.project !== undefined) { sets.push("project = ?"); args.push(b.project || null); }
   if (!sets.length) throw bad("Nothing to change");

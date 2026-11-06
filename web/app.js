@@ -114,6 +114,7 @@ function nav() {
   $("#sideStreak").textContent = streak();
   $("#heatStrip").innerHTML = heatStrip(56);
   const n = dayCount(TODAY()); $("#todayNote").innerHTML = `today <b>${n} / ${NB()}</b>`;
+  if (n >= NB()) dayDone();
   const be = $("#backupNote"); if (be) { const d = S.lastExport ? Math.floor((Date.now() - S.lastExport) / 864e5) : null; const hasData = S.notes.length || S.log.length || Object.keys(S.days).length; const synced = Sync && Sync.enabled; be.textContent = synced ? "" : d == null ? (hasData ? "no backup yet" : "") : d === 0 ? "backed up today" : `last backup ${d}d ago`; be.className = "backup-note " + (!synced && ((d == null && hasData) || d > 7) ? "stale" : ""); }
 }
 const parseHash = () => { let [h, ...rest] = (location.hash || "#now").slice(1).split("/"); if (h === "dashboard") h = "now"; return { r: ROUTES.some((x) => x[0] === h) ? h : "now", arg: rest.length ? decodeURIComponent(rest.join("/")) : null }; };
@@ -206,7 +207,7 @@ const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h <
 const fmtH = (min) => { const h = min / 60; return h >= 10 ? String(Math.round(h)) : h.toFixed(1).replace(/\.0$/, ""); };
 const noteById = (id) => S.notes.find((n) => n.id === id);
 const noteByTitle = (t) => { const k = String(t).trim().toLowerCase(); return S.notes.find((n) => (n.title || "").trim().toLowerCase() === k); };
-const newNote = (o = {}) => { const n = Object.assign({ id: uid(), title: "Untitled", body: "", tags: [], mod: null, visibility: "trusted", created: Date.now(), updated: Date.now() }, o); S.notes.unshift(n); save(); return n; };
+const newNote = (o = {}) => { const n = Object.assign({ id: uid(), title: "Untitled", body: "", tags: [], mod: null, visibility: "ai", created: Date.now(), updated: Date.now() }, o); S.notes.unshift(n); save(); return n; };
 const ext = (url) => /^https?:/.test(url) ? ' target="_blank" rel="noopener noreferrer"' : "";
 
 /* Markdown (subset) with $math$, ```code```, [[wikilinks]] and Q:/A: card lines. Everything is escaped first. */
@@ -882,7 +883,7 @@ VIEWS.library = (v) => {
   const id = routeArg(); if (id && noteById(id)) return noteView(v, noteById(id));
   $("#topAction").innerHTML = `<button class="btn small" id="njour" title="Private: never sent to an AI">Journal entry</button><button class="btn primary small" id="nnew">${icon("plus")} New note</button>`;
   $("#nnew").onclick = () => { const n = newNote(); location.hash = `#library/${n.id}`; };
-  $("#njour").onclick = () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"], visibility: "private" }); location.hash = `#library/${n.id}`; };
+  $("#njour").onclick = () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"] }); location.hash = `#library/${n.id}`; };
   const tags = [...new Set(S.notes.flatMap((n) => n.tags || []))].sort();
   const q = libQ.trim().toLowerCase();
   const list = S.notes.filter((n) => (!libTag || (n.tags || []).includes(libTag)) && (!q || (n.title + " " + n.body + " " + (n.tags || []).join(" ")).toLowerCase().includes(q))).sort((a, b) => b.updated - a.updated);
@@ -894,7 +895,7 @@ VIEWS.library = (v) => {
   </section>
   ${tags.length ? `<section class="row" style="gap:6px">${["", ...tags].map((t) => `<button class="chip" data-tag="${esc(t)}" aria-pressed="${t === libTag}">${t ? "#" + esc(t) : "All"}</button>`).join("")}</section>` : ""}
   <section id="lres">${!S.notes.length ? `<div class="empty"><p style="max-width:56ch;margin:0 auto 14px">Your knowledge base. One note per idea, paper or module: Markdown, $\\LaTeX$ math, code, <code>[[links]]</code> between notes, and <code>Q:</code>/<code>A:</code> lines that become review cards.</p><div class="row" style="justify-content:center"><button class="btn primary" id="guide">Create a guide note</button><button class="btn" id="blank">Blank note</button></div></div>`
-    : list.length ? `<div class="notes">${list.map((n) => { const c = noteCards(n).length, m = n.mod && modById(n.mod); const snip = (n.body || "").replace(/[#*`>$\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 150); return `<a class="note-card" href="#library/${n.id}"><b>${esc(n.title || "Untitled")}</b><p>${esc(snip) || '<span class="faint">Empty</span>'}</p><div class="row" style="gap:6px">${m ? `<span class="pill acc">${esc(m.t)}</span>` : ""}${n.visibility === "private" ? `<span class="pill warn" title="Never sent to an AI">private</span>` : n.visibility === "ai" ? `<span class="pill" title="Any AI provider may read it">ai</span>` : ""}${(n.tags || []).map((t) => `<span class="pill">#${esc(t)}</span>`).join("")}${c ? `<span class="pill ember">${c} cards</span>` : ""}<span class="faint num" style="margin-left:auto;font-size:12px">${ymd(new Date(n.updated))}</span></div></a>`; }).join("")}</div>`
+    : list.length ? `<div class="notes">${list.map((n) => { const c = noteCards(n).length, m = n.mod && modById(n.mod); const snip = (n.body || "").replace(/[#*`>$\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 150); return `<a class="note-card" href="#library/${n.id}"><b>${esc(n.title || "Untitled")}</b><p>${esc(snip) || '<span class="faint">Empty</span>'}</p><div class="row" style="gap:6px">${m ? `<span class="pill acc">${esc(m.t)}</span>` : ""}${(n.tags || []).map((t) => `<span class="pill">#${esc(t)}</span>`).join("")}${c ? `<span class="pill ember">${c} cards</span>` : ""}<span class="faint num" style="margin-left:auto;font-size:12px">${ymd(new Date(n.updated))}</span></div></a>`; }).join("")}</div>`
     : `<div class="empty">No note matches.</div>`}</section>`;
   const lq = $("#lq"); lq.oninput = () => { libQ = lq.value; const pos = lq.selectionStart; render(); const n = $("#lq"); n.focus(); n.setSelectionRange(pos, pos); };
   $$("[data-tag]", v).forEach((b) => b.onclick = () => { libTag = b.dataset.tag; render(); });
@@ -913,7 +914,6 @@ function noteView(v, n) {
       <input class="input note-title" id="ntitle" value="${esc(n.title)}" placeholder="Title" aria-label="Title">
       <div class="row" style="flex-wrap:nowrap">
         <label class="field" style="flex:1"><span>Tags, comma-separated</span><input class="input" id="ntags" value="${esc((n.tags || []).join(", "))}" placeholder="llm, paper"></label>
-        <label class="field"><span>AI visibility</span><select class="input" id="nvis" title="Who may read this note">${[["private", "Private · never sent to an AI"], ["trusted", "Trusted providers only"], ["ai", "Any AI provider"]].map(([k, t]) => `<option value="${k}" ${(n.visibility || "trusted") === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <label class="field" style="flex:1"><span>Path module</span><select class="input" id="nmod"><option value="">None</option>${C.stages.map((s) => `<optgroup label="${esc(s.t)}">${C.modules.filter((m) => m.stage === s.k).map((m) => `<option value="${m.id}" ${n.mod === m.id ? "selected" : ""}>${esc(m.t)}</option>`).join("")}</optgroup>`).join("")}</select></label>
       </div>
       <div class="row" style="justify-content:space-between"><div class="seg" role="group" aria-label="View">${[["edit", "Write"], ["split", "Split"], ["view", "Read"]].map(([k, t]) => `<button data-nm="${k}" aria-pressed="${noteMode === k}">${t}</button>`).join("")}</div>
@@ -936,7 +936,6 @@ function noteView(v, n) {
   $("#ntitle").onchange = () => render();
   $("#ntags").onchange = (e) => touch((x) => { x.tags = e.target.value.split(",").map((t) => t.trim().replace(/^#/, "").toLowerCase()).filter(Boolean); });
   $("#nmod").onchange = (e) => touch((x) => { x.mod = e.target.value || null; });
-  $("#nvis").onchange = (e) => { touch((x) => { x.visibility = e.target.value; }); render(); };
   $$("[data-nm]", v).forEach((b) => b.onclick = () => { noteMode = b.dataset.nm; $(".note-ed").dataset.mode = noteMode; $$("[data-nm]", v).forEach((x) => x.setAttribute("aria-pressed", x === b)); });
   $("#ndel").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Click again to delete"; return; } S.notes = S.notes.filter((x) => x.id !== n.id); save(); toast("Note deleted."); location.hash = "#library"; };
   if (!n.body && n.title === "Untitled") { const t = $("#ntitle"); t.focus(); t.select(); }
@@ -1023,9 +1022,6 @@ VIEWS.log = (v) => {
 };
 
 /* ---------------- brain: sources, search, repos, context inspector (needs the Forge Worker) ---------------- */
-const VIS = [["private", "Private · never sent to an AI"], ["trusted", "Trusted providers only"], ["ai", "Any AI provider"]];
-const visPill = (v) => v === "private" ? `<span class="pill warn" title="Never sent to an AI">private</span>` : v === "ai" ? `<span class="pill acc" title="Any AI provider may read it">ai</span>` : `<span class="pill" title="Only providers marked trusted">trusted</span>`;
-const visSel = (v, attr) => `<select class="input small-sel" ${attr} aria-label="AI visibility">${VIS.map(([k, t]) => `<option value="${k}" ${v === k ? "selected" : ""}>${t}</option>`).join("")}</select>`;
 async function api(method, path, body) {
   const r = await fetch(path, { method, credentials: "same-origin", headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
   const x = await r.json().catch(() => ({}));
@@ -1056,8 +1052,7 @@ VIEWS.sources = (v) => {
     <div class="card"><div class="card-h"><h3>Add a course or document</h3></div>
       <form id="up" class="stack" style="gap:10px">
         <label class="field"><span>PDF, slides exported as PDF, Markdown or text</span><input class="input" type="file" id="upf" accept=".pdf,.md,.markdown,.txt" required></label>
-        <div class="row"><label class="field" style="flex:1 1 140px"><span>Project</span><input class="input" id="upp" placeholder="cs231n"></label>
-        <label class="field" style="flex:1 1 180px"><span>AI visibility</span>${visSel("ai", 'id="upv"')}</label></div>
+        <div class="row"><label class="field" style="flex:1 1 140px"><span>Project</span><input class="input" id="upp" placeholder="cs231n"></label></div>
         <div class="row"><button class="btn primary" type="submit" id="upb">Upload</button><span class="faint" id="ups" style="font-size:13px">Text is extracted in this browser; only the text is sent.</span></div>
       </form></div>
     <div class="card"><div class="card-h"><h3>GitHub repositories</h3><span class="faint" id="ghtok" style="font-size:12px"></span></div>
@@ -1070,7 +1065,7 @@ VIEWS.sources = (v) => {
     const el = $("#shits"); if (!el) return;
     if (!srcQ.trim()) { el.innerHTML = ""; return; }
     if (!srcHits) { el.innerHTML = `<div class="faint">Searching…</div>`; return; }
-    el.innerHTML = srcHits.length ? `<div class="next-list">${srcHits.map((h) => `<a class="next-item hit" href="${sourceHref(h)}"><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:6px"><b>${esc(h.title)}</b><span class="pill">${KINDS[h.kind] || h.kind}</span>${visPill(h.visibility)}</span><span class="faint mono" style="font-size:12px">${esc(where(h.meta))}</span><span class="muted snip">${snip(h.snip)}</span></span></a>`).join("")}</div>` : `<div class="empty">No match.</div>`;
+    el.innerHTML = srcHits.length ? `<div class="next-list">${srcHits.map((h) => `<a class="next-item hit" href="${sourceHref(h)}"><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:6px"><b>${esc(h.title)}</b><span class="pill">${KINDS[h.kind] || h.kind}</span></span><span class="faint mono" style="font-size:12px">${esc(where(h.meta))}</span><span class="muted snip">${snip(h.snip)}</span></span></a>`).join("")}</div>` : `<div class="empty">No match.</div>`;
   };
   const runQ = async () => { const q = srcQ, n = ++srcSeq; srcHits = null; drawHits(); if (!q.trim()) return; try { const r = await api("GET", `/api/search?q=${encodeURIComponent(q)}`); if (n === srcSeq) { srcHits = r.results; drawHits(); } } catch (e) { fail(e); } };
   let qt = null; cleanup.push(() => clearTimeout(qt));
@@ -1081,8 +1076,7 @@ VIEWS.sources = (v) => {
     const el = $("#slist"); if (!el) return;
     let rows; try { rows = await api("GET", "/api/sources"); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
     if (!$("#slist")) return;
-    el.innerHTML = rows.length ? `<table><thead><tr><th>Title</th><th>Kind</th><th>Project</th><th>Chunks</th><th>AI visibility</th><th></th></tr></thead><tbody>${rows.map((s) => `<tr><td><a href="${sourceHref(s)}">${esc(s.title || "Untitled")}</a></td><td>${KINDS[s.kind] || s.kind}</td><td class="muted">${esc(s.project || "—")}</td><td class="num">${s.chunks}</td><td>${s.kind === "note" || s.kind === "journal" ? visPill(s.visibility) : visSel(s.visibility, `data-svis="${s.id}"`)}</td><td>${s.kind === "note" || s.kind === "journal" ? "" : `<button class="x" data-sdel="${s.id}">Delete</button>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Nothing yet. Upload a course, add a repository, or write notes in the Library: they sync here as searchable chunks.</div>`;
-    $$("[data-svis]", el).forEach((s) => s.onchange = () => api("PATCH", `/api/sources/${s.dataset.svis}`, { visibility: s.value }).then(() => toast(s.value === "private" ? "Private: never sent to an AI." : "Visibility updated."), fail));
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Title</th><th>Kind</th><th>Project</th><th>Chunks</th><th></th></tr></thead><tbody>${rows.map((s) => `<tr><td><a href="${sourceHref(s)}">${esc(s.title || "Untitled")}</a></td><td>${KINDS[s.kind] || s.kind}</td><td class="muted">${esc(s.project || "—")}</td><td class="num">${s.chunks}</td><td>${s.kind === "note" || s.kind === "journal" ? "" : `<button class="x" data-sdel="${s.id}">Delete</button>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Nothing yet. Upload a course, add a repository, or write notes in the Library: they sync here as searchable chunks.</div>`;
     $$("[data-sdel]", el).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm"; return; } api("DELETE", `/api/sources/${b.dataset.sdel}`).then(loadSources, fail); });
   };
 
@@ -1090,9 +1084,8 @@ VIEWS.sources = (v) => {
     const el = $("#repos"); if (!el) return;
     let rows; try { rows = await api("GET", "/api/repos"); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
     if (!$("#repos")) return;
-    el.innerHTML = rows.length ? `<div class="next-list">${rows.map((r) => `<div class="next-item repo"><span class="stack" style="gap:2px;flex:1 1 240px"><b class="mono" style="overflow-wrap:anywhere">${esc(r.full_name)}<span class="faint"> @${esc(r.branch)}</span></b><span class="faint" style="font-size:12px" data-rst="${r.id}">${r.files} files · ${r.chunks} chunks · synced ${when(r.synced_at)}${r.head_sha ? ` · ${r.head_sha.slice(0, 7)}` : ""}</span></span>${visSel(r.visibility, `data-rvis="${r.id}"`)}<button class="btn small" data-rsync="${r.id}">Sync</button><button class="x" data-rdel="${r.id}">Remove</button></div>`).join("")}</div>`
+    el.innerHTML = rows.length ? `<div class="next-list">${rows.map((r) => `<div class="next-item repo"><span class="stack" style="gap:2px;flex:1 1 240px"><b class="mono" style="overflow-wrap:anywhere">${esc(r.full_name)}<span class="faint"> @${esc(r.branch)}</span></b><span class="faint" style="font-size:12px" data-rst="${r.id}">${r.files} files · ${r.chunks} chunks · synced ${when(r.synced_at)}${r.head_sha ? ` · ${r.head_sha.slice(0, 7)}` : ""}</span></span><button class="btn small" data-rsync="${r.id}">Sync</button><button class="x" data-rdel="${r.id}">Remove</button></div>`).join("")}</div>`
       : `<div class="faint" style="font-size:13px">Code is chunked by function and class, Markdown by heading. Re-syncing skips unchanged files.</div>`;
-    $$("[data-rvis]", el).forEach((s) => s.onchange = () => api("PATCH", `/api/repos/${s.dataset.rvis}`, { visibility: s.value }).then(() => toast("Visibility applied to every file and commit."), fail));
     $$("[data-rdel]", el).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm"; return; } api("DELETE", `/api/repos/${b.dataset.rdel}`).then(loadRepos, fail); });
     $$("[data-rsync]", el).forEach((b) => b.onclick = async () => {
       const st = $(`[data-rst="${b.dataset.rsync}"]`); b.disabled = true; let n = 0, c = 0;
@@ -1117,7 +1110,7 @@ VIEWS.sources = (v) => {
       st.textContent = "Extracting text…";
       const parts = /\.pdf$/i.test(f.name) ? await pdfPages(f, (i, n) => { st.textContent = `Reading page ${i}/${n}…`; }) : textParts(await f.text());
       if (!parts.some((p) => p.text.trim())) throw new Error("No text found. Scanned PDFs need OCR first.");
-      const { id } = await api("POST", "/api/sources", { kind: "course", title: f.name.replace(/\.[^.]+$/, ""), origin: f.name, project: $("#upp").value.trim() || null, visibility: $("#upv").value });
+      const { id } = await api("POST", "/api/sources", { kind: "course", title: f.name.replace(/\.[^.]+$/, ""), origin: f.name, project: $("#upp").value.trim() || null });
       for (let i = 0; i < parts.length; i += 20) { st.textContent = `Uploading ${Math.min(parts.length, i + 20)}/${parts.length}…`; await api("POST", `/api/sources/${id}/parts`, { parts: parts.slice(i, i + 20) }); }
       toast(`${f.name}: ${parts.length} part${parts.length === 1 ? "" : "s"} indexed.`); location.hash = `#sources/${id}`;
     } catch (err) { fail(err); st.textContent = "Text is extracted in this browser; only the text is sent."; }
@@ -1153,31 +1146,30 @@ function sourceView(v, id) {
   api("GET", `/api/sources/${encodeURIComponent(id)}`).then((s) => {
     if (route() !== "sources" || routeArg() !== id) return;
     document.title = `${s.title} · Forge`;
-    const locked = s.kind === "note" || s.kind === "journal" || s.kind === "repo" || s.kind === "commit";
     v.innerHTML = `
     <nav class="crumbs"><a href="#sources">Sources</a><span>/</span><span>${esc(s.title)}</span></nav>
     <section class="card"><div class="row" style="justify-content:space-between">
       <div class="stack" style="gap:4px"><h3 style="margin:0">${esc(s.title)}</h3><span class="muted" style="font-size:13px">${KINDS[s.kind] || s.kind}${s.project ? ` · ${esc(s.project)}` : ""}${s.origin ? ` · ${esc(s.origin)}` : ""} · ${s.chunks.length} chunks · updated ${when(s.updated)}</span></div>
-      <span class="row">${locked ? `${visPill(s.visibility)}<span class="faint" style="font-size:12px">${s.kind === "repo" || s.kind === "commit" ? "set on the repository" : "set in the Library"}</span>` : visSel(s.visibility, 'id="svis"')}</span></div></section>
-    <section class="stack" style="gap:10px">${s.chunks.map((c) => `<article class="card chunk"><div class="row" style="justify-content:space-between"><span class="faint mono" style="font-size:12px">#${c.ord + 1} · ${esc(where(c.meta) || "—")}</span>${c.visibility !== s.visibility ? visPill(c.visibility) : ""}</div><pre>${esc(c.text)}</pre></article>`).join("") || `<div class="empty">No chunks.</div>`}</section>`;
-    const sv = $("#svis"); if (sv) sv.onchange = () => api("PATCH", `/api/sources/${id}`, { visibility: sv.value }).then(() => { toast("Visibility applied to every chunk."); render(); }, fail);
+</div></section>
+    <section class="stack" style="gap:10px">${s.chunks.map((c) => `<article class="card chunk"><div class="row" style="justify-content:space-between"><span class="faint mono" style="font-size:12px">#${c.ord + 1} · ${esc(where(c.meta) || "—")}</span></div><pre>${esc(c.text)}</pre></article>`).join("") || `<div class="empty">No chunks.</div>`}</section>`;
   }, (e) => { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
 }
 
 VIEWS.context = (v) => {
   if (needsWorker(v)) return;
   v.innerHTML = `
+  <section class="card" id="warm"></section>
   <section class="card"><div class="card-h"><h3>What the AI saw</h3></div>
-    <p class="muted" style="margin:0;max-width:72ch">Every model call goes through one gate. It drops anything <b>private</b>, keeps <b>trusted</b> items for trusted providers only, redacts emails and phone numbers, and records here exactly which items left, to which provider, and why that provider was chosen.</p>
-    <div class="row" style="gap:8px;margin-top:12px">${visPill("private")}<span class="faint" style="font-size:12px">never leaves</span>${visPill("trusted")}<span class="faint" style="font-size:12px">trusted providers</span>${visPill("ai")}<span class="faint" style="font-size:12px">any provider</span></div></section>
+    <p class="muted" style="margin:0;max-width:72ch">The assistant reads everything in Forge: notes, journal, sources, code, your evidence. Keep what is truly private off Forge. Every call still goes through one gate that redacts emails and phone numbers and records here exactly which items were sent, to which provider.</p></section>
   <section class="card"><div class="card-h"><h3>Calls</h3><span class="muted" style="font-size:13px">Latest 100</span></div><div id="calls"><div class="faint">Loading…</div></div></section>`;
   api("GET", "/api/audit").then(({ calls }) => {
     const el = $("#calls"); if (!el) return;
     const dec = (d) => !d ? "" : d.action === "switched" ? `<span class="pill warn">switched from ${esc(d.from)}: ${esc(d.because)}</span>` : d.action === "excluded" ? `<span class="pill">${d.excluded.length} item${d.excluded.length === 1 ? "" : "s"} held back</span>` : `<span class="pill good">routed</span>`;
     el.innerHTML = calls.length ? `<div class="next-list">${calls.map((c) => `<details class="call"><summary><span class="num faint">${when(c.at)}</span><b>${esc(c.task)}</b><span class="pill mono">${esc(c.provider)} · ${esc(c.model || "")}</span>${dec(c.decision)}<span class="faint num" style="margin-left:auto;font-size:12px">${c.items.length} items · ${c.tokens_in ?? "?"}→${c.tokens_out ?? "?"} tok</span></summary>
-      <div class="next-list" style="margin-top:8px">${c.items.map((it) => it.source_id ? `<a class="next-item ctx" href="${sourceHref(it)}"><span>${esc(it.title || it.id)}</span><span class="pill">${KINDS[it.kind] || it.kind || ""}</span>${visPill(it.visibility)}</a>` : /^(exercise|code|run):/.test(it.id) ? `<div class="next-item ctx faint">${esc(it.id)} · sent with this call only, not stored</div>` : `<div class="next-item ctx faint">${esc(it.id)} · deleted since</div>`).join("") || `<div class="faint">No context items.</div>`}</div></details>`).join("")}</div>`
+      <div class="next-list" style="margin-top:8px">${c.items.map((it) => it.source_id ? `<a class="next-item ctx" href="${sourceHref(it)}"><span>${esc(it.title || it.id)}</span><span class="pill">${KINDS[it.kind] || it.kind || ""}</span></a>` : /^(exercise|code|run):/.test(it.id) ? `<div class="next-item ctx faint">${esc(it.id)} · sent with this call only, not stored</div>` : `<div class="next-item ctx faint">${esc(it.id)} · deleted since</div>`).join("") || `<div class="faint">No context items.</div>`}</div></details>`).join("")}</div>`
       : `<div class="empty"><p style="max-width:56ch;margin:0 auto">No AI call yet. When the tutor, grader or wiki agent calls a model, each call appears here with the exact items it was given.</p></div>`;
   }, (e) => { const el = $("#calls"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+  warmCard();
 };
 
 /* ---------------- proof loop: daily questions you can't fake ---------------- */
@@ -1282,7 +1274,8 @@ const Palette = {
       (window.DRILLS || []).map((d) => ({ t: d.title, sub: `Arena · ML from scratch`, run: go(`#arena/${d.id}`) })),
       [{ t: "New note", sub: "Action", run: () => { const n = newNote(); location.hash = `#library/${n.id}`; } },
        { t: "Log a session", sub: "Action", run: go("#log") },
-       { t: "Journal entry", sub: "Action · private", run: () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"], visibility: "private" }); location.hash = `#library/${n.id}`; } },
+       { t: "Write a thought", sub: "Action · the assistant files it", run: () => openCapture() },
+       { t: "Journal entry", sub: "Action", run: () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"] }); location.hash = `#library/${n.id}`; } },
        { t: "Search the second brain", sub: "Action", run: go("#sources") },
        { t: "Review due cards", sub: "Action", run: go("#review") },
        { t: "Answer today's proof questions", sub: "Action", run: go("#proof") },
@@ -1325,8 +1318,117 @@ const Palette = {
 document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); Palette.isOpen() ? Palette.close() : Palette.open(""); return; }
   const a = document.activeElement;
-  if (e.key === "/" && !Palette.isOpen() && !(a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable || a.closest(".CodeMirror")))) { e.preventDefault(); Palette.open(""); }
+  const typing = a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable || a.closest(".CodeMirror"));
+  if (e.key === "/" && !Palette.isOpen() && !typing) { e.preventDefault(); Palette.open(""); }
+  if ((e.key === "n" || e.key === "N") && !e.metaKey && !e.ctrlKey && !e.altKey && !Palette.isOpen() && !typing) { e.preventDefault(); openCapture(); }
 });
+
+/* ---------------- capture: a thought from anywhere, filed by the assistant ---------------- */
+const DRAFT = "forge.capDraft";
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} };
+function captureWhere() {
+  const a = attribution(), r = route();
+  if (a && a.note) return { label: a.note, mod: a.mod || null };
+  if (r === "library" && routeArg()) { const n = noteById(routeArg()); if (n) return { label: `Notes · ${n.title}`, mod: n.mod || null }; }
+  return { label: (ROUTES.find((x) => x[0] === r) || [r, r])[1], mod: (todayPlan && todayPlan.module) || null };
+}
+function fileLocally(d, text) {
+  let n = null;
+  if (d.note === "inbox") n = S.notes.find((x) => !x.deleted && (x.tags || []).includes("inbox"));
+  else if (d.note !== "new") n = noteById(d.note);
+  if (!n) n = d.note === "inbox" ? newNote({ title: "Inbox", tags: ["inbox"] }) : newNote({ title: d.title || text.trim().split(/\s+/).slice(0, 7).join(" "), mod: d.mod, tags: d.tags });
+  const stamp = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const cards = (d.cards || []).map((c) => `Q: ${c.q}\nA: ${c.a}`).join("\n\n");
+  n.body = `${(n.body || "").trimEnd()}\n\n## ${stamp} · ${d.heading || "Thought"}\n\n${text.trim()}\n${cards ? `\n${cards}\n` : ""}`.replace(/^\s+/, "");
+  if (!n.mod && d.mod) n.mod = d.mod;
+  n.tags = [...new Set([...(n.tags || []), ...(d.tags || [])])];
+  n.updated = Date.now(); save();
+  return n;
+}
+function openCapture() {
+  if ($("#cap")) { $("#capText") && $("#capText").focus(); return; }
+  const where = captureWhere(), el = document.createElement("div");
+  el.className = "cap-back"; el.id = "cap";
+  const close = () => { el.remove(); document.removeEventListener("keydown", esc_); };
+  const esc_ = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const form = () => {
+    el.innerHTML = `<div class="cap" role="dialog" aria-modal="true" aria-label="Write a thought">
+      <div class="cap-h"><span class="eyebrow">A thought</span><span class="faint m">from ${esc(where.label)}</span><button class="x" id="capX" type="button">Esc</button></div>
+      <textarea id="capText" class="cap-t" placeholder="What clicked, what is still fuzzy, an idea to try, a doubt… Write freely: the assistant files it in the right note, makes review cards from it and tells you what to push next."></textarea>
+      <div class="cap-f"><span class="faint m">⌘↵ to file it</span><button class="btn primary" id="capGo" type="button">File it</button></div></div>`;
+    const ta = $("#capText", el); ta.value = lsGet(DRAFT) || ""; ta.focus();
+    ta.oninput = () => lsSet(DRAFT, ta.value || null);
+    ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); } };
+    $("#capX", el).onclick = close; $("#capGo", el).onclick = go;
+  };
+  const done = (n, d) => {
+    const m = n.mod && modById(n.mod);
+    el.innerHTML = `<div class="cap" role="dialog" aria-modal="true" aria-label="Thought filed">
+      <div class="cap-h"><span class="eyebrow">Filed</span><span class="grow"></span><button class="x" id="capX" type="button">Esc</button></div>
+      <div class="cap-done"><a class="cap-dest" href="#library/${n.id}">${esc(n.title)}</a><span class="faint m">${m ? `${esc(m.t)} · ` : ""}${(d.cards || []).length ? `${d.cards.length} review card${d.cards.length === 1 ? "" : "s"} · ` : ""}${d.fallback ? "inbox: the assistant was unavailable" : "filed by the assistant"}</span>
+      ${d.nudge ? `<p class="nudge">${esc(d.nudge)}</p>` : ""}</div>
+      <div class="cap-f"><button class="btn" id="capMore" type="button">Another thought</button><button class="btn primary" id="capClose" type="button">Done</button></div></div>`;
+    $("#capX", el).onclick = close; $("#capClose", el).onclick = close; $("#capMore", el).onclick = form;
+    $(".cap-dest", el).onclick = close; $("#capClose", el).focus();
+  };
+  async function go() {
+    const ta = $("#capText", el), text = ta.value.trim(); if (!text) return ta.focus();
+    const b = $("#capGo", el); b.disabled = true; b.textContent = "Filing…"; ta.readOnly = true;
+    let d;
+    if (Sync && Sync.enabled) {
+      try { d = await api("POST", "/api/capture", { text, where, notes: S.notes.filter((n) => !n.deleted).slice(0, 60).map((n) => ({ id: n.id, title: n.title, mod: n.mod || null })), modules: C.modules.map((m) => ({ id: m.id, t: m.t })) }); }
+      catch (e) { d = { note: "inbox", mod: where.mod, tags: [], cards: [], fallback: true }; }
+    } else d = { note: "inbox", mod: where.mod, tags: [], cards: [], fallback: true };
+    const n = fileLocally(d, text); lsSet(DRAFT, null); done(n, d);
+    if (route() === "library") render();
+  }
+  el.onclick = (e) => { if (e.target === el) close(); };
+  document.addEventListener("keydown", esc_);
+  document.body.appendChild(el); form();
+}
+
+/* ---------------- the day is done: a short, satisfying moment, once per day ---------------- */
+function dayDone() {
+  const d = TODAY(); if (lsGet("forge.done") === d) return; lsSet("forge.done", d);
+  setTimeout(celebrate, 350);
+}
+function celebrate() {
+  const el = document.createElement("div"); el.className = "done-fx"; el.setAttribute("aria-hidden", "true");
+  const N = 30;
+  el.innerHTML = `<div class="done-burst">${Array.from({ length: N }, (_, i) => `<i style="--a:${(i * 360) / N + ((i * 37) % 11)}deg;--d:${130 + ((i * 53) % 110)}px;--h:var(--h${2 + (i % 4)});--t:${780 + (i % 6) * 35}ms"></i>`).join("")}</div>
+    <div class="done-card"><div class="done-bars">${"<i></i>".repeat(NB())}</div><h2>Day complete<em>.</em></h2><p class="m">${NB()} / ${NB()} blocks · ${streak()}-day streak</p></div>`;
+  document.body.appendChild(el); toast("Daily work complete.");
+  setTimeout(() => el.remove(), 3200);
+}
+globalThis.ForgeFx = { celebrate };
+
+/* ---------------- warm-up: one real call per AI task ---------------- */
+const WARM_STEPS = [["tutor", "Tutor", "a hint on a failing softmax"], ["question_gen", "Questions", "a Proof question from your brain"], ["grading", "Grading", "a sample answer graded"], ["planner", "Planner", "today's plan, written now"], ["assistant", "Assistant", "a thought filed"]];
+const WARM_VER = "2026-11-06";
+let warmRunning = false;
+function warmCard() {
+  const el = $("#warm"); if (!el) return;
+  let rec = null; try { rec = JSON.parse(lsGet("forge.warmup") || "null"); } catch (e) {}
+  const res = (k) => rec && rec.results.find((r) => r.step === k);
+  el.innerHTML = `<div class="card-h"><h3>Warm-up</h3><span class="row" style="gap:10px"><span class="muted" style="font-size:13px">${rec ? `last run ${when(new Date(rec.at).toISOString())}` : "one real call per AI task"}</span><button class="btn small" id="warmGo" ${warmRunning ? "disabled" : ""}>${warmRunning ? "Running…" : rec ? "Run again" : "Run"}</button></span></div>
+    <div class="tests" style="font-size:13px">${WARM_STEPS.map(([k, t, what]) => { const r = res(k); return `<div class="${r ? "y" : ""}" style="grid-template-columns:18px 96px minmax(0,1fr) auto;gap:10px;align-items:baseline"><span class="${r ? (r.ok ? "ok" : "ko") : ""}">${r ? (r.ok ? "✓" : "✗") : "·"}</span><b style="font-family:var(--body);font-weight:500">${t}</b><span class="muted" style="font-family:var(--body);font-size:14px">${r ? esc(r.ok ? r.sample : r.error) : what}</span><span class="faint">${r ? `${esc(r.provider || "")} · ${(r.ms / 1000).toFixed(1)}s` : ""}</span></div>`; }).join("")}</div>`;
+  $("#warmGo").onclick = () => runWarmup();
+}
+async function runWarmup() {
+  if (warmRunning || !(Sync && Sync.enabled)) return; warmRunning = true;
+  const rec = { at: Date.now(), ver: WARM_VER, results: [] };
+  warmCard();
+  for (const [k] of WARM_STEPS) {
+    let r; try { r = await api("POST", `/api/warmup/${k}`, {}); } catch (e) { r = { step: k, ok: false, error: e.message, ms: 0 }; }
+    rec.results.push(r); lsSet("forge.warmup", JSON.stringify(rec)); warmCard();
+  }
+  warmRunning = false; warmCard();
+  const bad = rec.results.filter((r) => !r.ok);
+  console.info("[forge] warm-up", rec.results);
+  toast(bad.length ? `Warm-up: ${bad.length} step${bad.length === 1 ? "" : "s"} failed (see Context).` : "Warm-up: every AI task answered.");
+  api("GET", "/api/plan").then((p) => { todayPlan = p && p.plan; if (route() === "now") render(); }, () => {}); refreshProof();
+}
 
 /* ---------------- observation: active time, attributed to what is on screen ---------------- */
 let lastInput = 0;
@@ -1379,6 +1481,8 @@ async function dailyWorker() {
   } catch (e) {}
   try { const a = await api("GET", "/api/activity"); commitDays = a.commits || {}; localStorage.setItem("forge.commits", JSON.stringify(commitDays)); } catch (e) {}
   nav(); if (["now", "today", "path", "skills"].includes(route())) render();
+  let rec = null; try { rec = JSON.parse(lsGet("forge.warmup") || "null"); } catch (e) {}
+  if (!rec || rec.ver !== WARM_VER) runWarmup();
 }
 
 /* ---------------- boot ---------------- */
@@ -1387,6 +1491,8 @@ render();
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if (Sync) {
   updateCtx();
+  if (S.notes.some((n) => n.visibility !== "ai")) { S.notes.forEach((n) => { n.visibility = "ai"; }); save(); }
+  $("#capBtn").onclick = () => openCapture();
   Sync.detect().then((ok) => { if (ok) { Sync.sync(); refreshProof(); dailyWorker(); if (["sources", "context", "proof", "skills"].includes(route())) render(); } });
   setInterval(() => { if (!document.hidden && Sync.status !== "local") Sync.sync(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.sync(); });

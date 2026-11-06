@@ -59,6 +59,8 @@ export async function tutor(db, env, body, { now = new Date(), fetch: f } = {}) 
     { id: `code:${id}`, kind: "code", visibility: "ai", title: "his current code", text: cut(body.code, 8000) || "(empty)" },
     { id: `run:${id}`, kind: "run", visibility: "ai", title: "last test run", text: cut(body.run, 3000) || "(not run yet)" }
   ];
+  const lastPlan = await db.prepare("SELECT plan FROM plans ORDER BY day DESC LIMIT 1").first().catch(() => null);
+  if (lastPlan) { try { const p = JSON.parse(lastPlan.plan); items.push({ id: "learner:plan", kind: "learner", visibility: "ai", title: "what the planner knows about him", text: `${p.why || ""}${(p.concepts || []).length ? `\nWeak concepts: ${p.concepts.join(", ")}` : ""}` }); } catch (e) {} }
   const convo = msgs.map((m) => `${m.role === "me" ? "Matis" : "Tutor"}: ${cut(m.text, 1500)}`).join("\n");
   const cfg = aiConfig(env), { provider, decision } = resolveRoute("tutor", items, cfg);
   let guarded = null;

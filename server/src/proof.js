@@ -65,7 +65,7 @@ export async function generate(db, env, { now = new Date(), fetch: f, force = fa
        AND coalesce(json_extract(c.meta, '$.symbol'), '') != '(header)'
        AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.chunk_id = c.id)
      ORDER BY (s.updated >= ?2) DESC, random() LIMIT 1`).bind(JSON.stringify(levels), recent).first();
-  if (!c) throw bad("Nothing to ask about yet: upload a course, sync a repository or write notes (≥ 200 characters, not private).", 409);
+  if (!c) throw bad("Nothing to ask about yet: upload a course, sync a repository or write notes (≥ 200 characters).", 409);
   const meta = c.meta ? JSON.parse(c.meta) : {};
   const item = { id: c.id, kind: c.kind, title: `${c.title}${where(meta) ? ` (${where(meta)})` : ""}`, text: c.text, visibility: c.visibility };
   const { text } = await ask(db, env, "question_gen", [item], GEN, "", { now, fetch: f });
@@ -191,7 +191,7 @@ export async function gradeDiagnostic(db, env, body, { now = new Date(), fetch: 
     const q = qs[i], answer = String(q.answer || "").slice(0, MAX_ANSWER).trim();
     if (answer.length < 3) { out.push({ score: 0, fix: "No answer." }); continue; }
     const strip = (x) => String(x || "").replace(/<[^>]+>/g, "");
-    const item = { id: `diag:${part}:${i}`, kind: "diagnostic", visibility: "trusted", title: strip(q.q).slice(0, 200), text: `Question: ${strip(q.q)}\nRubric:\n${(q.keys || []).map((k) => `- ${strip(k)}`).join("\n")}` };
+    const item = { id: `diag:${part}:${i}`, kind: "diagnostic", visibility: "ai", title: strip(q.q).slice(0, 200), text: `Question: ${strip(q.q)}\nRubric:\n${(q.keys || []).map((k) => `- ${strip(k)}`).join("\n")}` };
     const { text } = await ask(db, env, "grading", [item], GRADE, `Answer:\n${answer}`, { now, fetch: f, maxTokens: 200 });
     const g = parseJSON(text), score = Math.max(0, Math.min(100, Math.round(Number(g?.score))));
     out.push(Number.isFinite(score) ? { score, fix: String(g.fix || "").slice(0, 300) } : { score: 0, fix: "The grader's reply was unusable: graded 0." });

@@ -33,7 +33,7 @@ export async function listRepos(db) {
 export async function addRepo(db, b) {
   const full = String(b?.full_name || "").trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, "");
   if (!/^[\w.-]+\/[\w.-]+$/.test(full)) throw bad("Repository must look like owner/name");
-  const visibility = b.visibility || "ai"; if (!VIS.has(visibility)) throw bad("Invalid visibility");
+  const visibility = "ai";
   const id = "r" + (await sha256(full.toLowerCase())).slice(0, 15);
   await db.prepare("INSERT INTO repos (id, full_name, branch, project, visibility, created) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(full_name) DO NOTHING")
     .bind(id, full, String(b.branch || "main").trim() || "main", b.project || full.split("/")[1], visibility, now()).run();
@@ -41,7 +41,7 @@ export async function addRepo(db, b) {
 }
 
 export async function patchRepo(db, id, b) {
-  if (b.visibility !== undefined && !VIS.has(b.visibility)) throw bad("Invalid visibility");
+  if (b.visibility !== undefined) delete b.visibility; // no confidentiality levels any more
   const r = await db.prepare("SELECT id FROM repos WHERE id = ?").bind(id).first(); if (!r) throw bad("Repo not found", 404);
   const stmts = [];
   if (b.visibility) stmts.push(db.prepare("UPDATE repos SET visibility = ? WHERE id = ?").bind(b.visibility, id), db.prepare("UPDATE sources SET visibility = ? WHERE repo_id = ?").bind(b.visibility, id));

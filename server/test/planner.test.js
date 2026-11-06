@@ -84,7 +84,7 @@ test("routes, activity, and DeepSeek routing with the secret set", async () => {
 
   const ds = { DEEPSEEK_API_KEY: "k", AI };
   assert.equal(aiConfig(ds).providers.deepseek.baseUrl, "https://api.deepseek.com");
-  assert.deepEqual(Object.values(routing(ds)), ["deepseek", "deepseek", "deepseek", "deepseek"]);
+  assert.deepEqual(Object.values(routing(ds)), ["deepseek", "deepseek", "deepseek", "deepseek", "deepseek"]);
   let hit = null;
   const fetch = async (url, init) => { hit = { url, auth: init.headers.authorization, body: JSON.parse(init.body) }; return new Response(JSON.stringify({ choices: [{ message: { content: "Which axis holds T?" } }] })); };
   const r = await tutor(fakeD1(), ds, { kind: "drill", id: "attention", title: "t", desc: "d", tests: [], code: "", run: "", messages: [{ role: "me", text: "help" }] }, { fetch });

@@ -92,17 +92,17 @@ test("a week of simulated reviews: daily question, due dates, pasted answers fla
   assert.ok(AI.calls.filter((c) => c.system.includes("You grade")).every((c) => c.user.includes("Answer:")));
 });
 
-test("private material never reaches the model; a source made private retires its question", async () => {
+test("journal entries are never exam material; a legacy private source still never reaches the model", async () => {
   const db = fakeD1(), AI = mockAI([80]), env = { AI };
-  await seed(db, "private");
-  await db.prepare("INSERT INTO sources (id, kind, title, visibility, created, updated, rev) VALUES ('j1', 'journal', 'Journal', 'private', 'x', 'x', 0)").run();
+  const legacy = await seed(db); await db.prepare("UPDATE sources SET visibility = 'private' WHERE id = ?").bind(legacy).run(); await db.prepare("UPDATE chunks SET visibility = 'private' WHERE source_id = ?").bind(legacy).run();
+  await db.prepare("INSERT INTO sources (id, kind, title, visibility, created, updated, rev) VALUES ('j1', 'journal', 'Journal', 'ai', 'x', 'x', 0)").run();
   await assert.rejects(generate(db, env, { now: at("2026-11-02"), force: true }), (e) => e.status === 409);
   assert.equal(AI.calls.length, 0);
 
   const sid = await seed(db, "ai");
   const g = await generate(db, env, { now: at("2026-11-02"), force: true });
   assert.ok(!AI.calls[0].user.includes("SECRET"));
-  await db.prepare("UPDATE sources SET visibility = 'private' WHERE id = ?").bind(sid).run();
+  await db.prepare("UPDATE sources SET visibility = 'private' WHERE id = ?").bind(sid).run(); // legacy data only: the API can't set it
   await assert.rejects(answer(db, env, g.id, { answer: "Something long enough to be a real answer here.", typed_ms: 9000 }, { now: at("2026-11-02") }), (e) => e.status === 409);
   assert.equal(AI.calls.length, 1, "grading never called");
   assert.equal((await session(db, env, { now: at("2026-11-02") })).due.length, 0, "retired");

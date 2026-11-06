@@ -1,9 +1,9 @@
-// AI configuration: providers (with clearance) and task routes. Override everything with the AI_CONFIG var (JSON).
-// Default: Cloudflare Workers AI through the `AI` binding (no key, requests stay inside Cloudflare, `trusted`).
-// With the DEEPSEEK_API_KEY secret set, every task goes to DeepSeek (OpenAI-compatible API), cleared for
-// `trusted` items by Matis's choice. Private items never reach any provider (contextGate).
+// AI configuration: providers and task routes. Override everything with the AI_CONFIG var (JSON).
+// Default: Cloudflare Workers AI through the `AI` binding (no key). With the DEEPSEEK_API_KEY secret set, every task
+// goes to DeepSeek (OpenAI-compatible API). Everything in Forge is readable by the assistant (Matis's choice: truly
+// private material stays off Forge); contextGate still audits each call and redacts emails and phone numbers.
 
-export const TASKS = ["question_gen", "grading", "tutor", "planner"];
+export const TASKS = ["question_gen", "grading", "tutor", "planner", "assistant"];
 export const DEFAULT_AI = {
   providers: { "workers-ai": { clearance: "trusted", binding: "AI", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" } },
   routes: Object.fromEntries(TASKS.map((t) => [t, "workers-ai"]))

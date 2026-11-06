@@ -32,8 +32,7 @@ export async function getState(db, since = 0) {
 function checkNote(n) {
   if (!n || typeof n.id !== "string" || !/^[\w-]{1,64}$/.test(n.id)) throw bad("note.id is invalid");
   const kind = n.kind || "note"; if (kind !== "note" && kind !== "journal") throw bad("note.kind must be note or journal");
-  const visibility = n.visibility || (kind === "journal" ? "private" : "trusted");
-  if (!VIS.has(visibility)) throw bad(`note.visibility "${visibility}" is invalid`);
+  const visibility = "ai"; // no confidentiality levels: the assistant reads every note
   if (String(n.body || "").length > MAX_VALUE) throw bad("note is too large");
   if (!Number.isFinite(Number(n.updated))) throw bad("note.updated must be a timestamp in ms");
   return { kind, visibility };

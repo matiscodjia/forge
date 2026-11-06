@@ -32,7 +32,7 @@ test("writes refuse cross-origin and non-JSON bodies; unknown keys are rejected"
   assert.equal((await f("/api/state", { method: "PUT", headers: { origin: "https://evil.test", "content-type": "application/json" }, body: "{}" })).status, 403);
   assert.equal((await f("/api/state", { method: "PUT", headers: { "content-type": "text/plain" }, body: "{}" })).status, 415);
   assert.equal((await f("/api/state", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ kv: { theme: { v: 1, base: 0 } } }) })).status, 400);
-  assert.equal((await f("/api/state", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ notes: [{ id: "x", visibility: "publik", updated: 1 }] }) })).status, 400);
+  assert.equal((await f("/api/state", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ notes: [{ id: "x y", updated: 1 }] }) })).status, 400);
 });
 
 test("first device uploads, second device downloads everything", async () => {
@@ -47,7 +47,7 @@ test("first device uploads, second device downloads everything", async () => {
   assert.deepEqual(b.S.log, a.S.log);
   assert.deepEqual(b.S.days, a.S.days);
   assert.equal(b.S.notes[0].title, "Attention");
-  assert.equal(b.S.notes[0].visibility, "trusted", "notes default to trusted");
+  assert.equal(b.S.notes[0].visibility, "ai", "every note is readable by the assistant");
   assert.equal(b.remote, 1);
 });
 

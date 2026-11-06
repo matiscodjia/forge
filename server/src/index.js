@@ -8,12 +8,14 @@ import { getPlan, plan, activity } from "./planner.js";
 import { ready, routing } from "./ai.js";
 import { tutor } from "./tutor.js";
 import { importReading } from "./reading.js";
+import { fileThought } from "./capture.js";
+import { warmup } from "./warmup.js";
 
 const j = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 /** [method, pattern, handler(ctx, params)] — first match wins. */
 const ROUTES = [
-  ["GET", /^\/api\/health$/, (c) => ({ ok: true, email: c.user.email, github: !!c.env.GITHUB_TOKEN, ai: ready(c.env, "question_gen") && ready(c.env, "grading"), tutor: ready(c.env, "tutor"), planner: ready(c.env, "planner"), routes: routing(c.env) })],
+  ["GET", /^\/api\/health$/, (c) => ({ ok: true, email: c.user.email, github: !!c.env.GITHUB_TOKEN, ai: ready(c.env, "question_gen") && ready(c.env, "grading"), tutor: ready(c.env, "tutor"), planner: ready(c.env, "planner"), assistant: ready(c.env, "assistant"), routes: routing(c.env) })],
   ["GET", /^\/api\/state$/, (c) => getState(c.db, Math.max(0, parseInt(c.url.searchParams.get("since") || "0", 10) || 0))],
   ["PUT", /^\/api\/state$/, async (c) => putState(c.db, await c.req.json())],
   ["GET", /^\/api\/sources$/, (c) => listSources(c.db)],
@@ -40,7 +42,9 @@ const ROUTES = [
   ["GET", /^\/api\/plan$/, (c) => getPlan(c.db, c.env)],
   ["POST", /^\/api\/plan$/, (c) => plan(c.db, c.env, { force: true })],
   ["GET", /^\/api\/activity$/, (c) => activity(c.db)],
-  ["POST", /^\/api\/reading$/, async (c) => importReading(c.db, await c.req.json())]
+  ["POST", /^\/api\/reading$/, async (c) => importReading(c.db, await c.req.json())],
+  ["POST", /^\/api\/capture$/, async (c) => fileThought(c.db, c.env, await c.req.json())],
+  ["POST", /^\/api\/warmup\/(\w+)$/, (c, [step]) => warmup(c.db, c.env, step)]
 ];
 
 export default {
