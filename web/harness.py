@@ -117,3 +117,44 @@ def run(code, fn_name, cases_json, cmp):
         return json.dumps({"results": results, "stdout": buf.getvalue()[:2000]})
     finally:
         sys.stdout = old
+
+
+def run_drill(code, fns_json, tests_src, prelude_src):
+    """Drill mode: exec the user's file, then every test_*(u) of the drill in definition order."""
+    import types
+    fns = json.loads(fns_json)
+    ns = {"__name__": "solution"}
+    buf = io.StringIO()
+    old = sys.stdout
+    sys.stdout = buf
+    try:
+        try:
+            exec(compile(code, "solution.py", "exec"), ns)
+        except Exception as e:
+            return json.dumps({"error": "".join(traceback.format_exception_only(type(e), e)).strip(), "stdout": buf.getvalue()[:2000]})
+        missing = [f for f in fns if f not in ns]
+        if missing:
+            return json.dumps({"error": f"Define {', '.join(missing)}.", "stdout": buf.getvalue()[:2000]})
+        u = types.SimpleNamespace(**{k: v for k, v in ns.items() if not k.startswith("__")})
+        tns = {"__name__": "tests"}
+        exec(compile(prelude_src, "prelude.py", "exec"), tns)
+        exec(compile(tests_src, "tests.py", "exec"), tns)
+        results = []
+        for name, fn in list(tns.items()):
+            if not (name.startswith("test_") and callable(fn)):
+                continue
+            label = (fn.__doc__ or name[5:].replace("_", " ")).strip().splitlines()[0]
+            t0 = time.perf_counter()
+            try:
+                fn(u)
+                results.append({"name": name, "label": label, "ok": True, "ms": round((time.perf_counter() - t0) * 1000, 1)})
+            except AssertionError as e:
+                results.append({"name": name, "label": label, "ok": False, "msg": str(e) or "assertion failed", "ms": round((time.perf_counter() - t0) * 1000, 1)})
+            except Exception as e:
+                tb = traceback.extract_tb(e.__traceback__)
+                line = next((f.lineno for f in reversed(tb) if f.filename == "solution.py"), None)
+                msg = f"{type(e).__name__}: {e}" + (f" (solution.py, line {line})" if line else "")
+                results.append({"name": name, "label": label, "ok": False, "msg": msg, "ms": round((time.perf_counter() - t0) * 1000, 1)})
+        return json.dumps({"results": results, "stdout": buf.getvalue()[:2000]})
+    finally:
+        sys.stdout = old

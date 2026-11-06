@@ -5,43 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Forge</title>
 <meta name="description" content="Forge — a from-scratch path to deep ML engineering: curriculum, knowledge base, spaced repetition, coding arena, diagnostics and time tracking.">
-<meta name="theme-color" content="#0B1018">
+<meta name="theme-color" content="#0F0E0C">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="vendor/codemirror.css">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <div class="app">
-  <aside class="sidebar" aria-label="Main navigation">
-    <div class="brand"><span class="brand-mark">F</span><b>Forge</b></div>
-    <nav class="nav" id="nav"></nav>
-    <div class="side-foot">
-      <div class="streak-card"><b id="sideStreak">0</b><div><div style="font-weight:600;font-size:14px">day streak</div><div class="muted" style="font-size:12px">5 of 6 blocks a day</div></div></div>
-      <div class="side-row">
-        <button class="ghost" id="themeBtn" title="Switch theme">Theme</button>
-        <button class="ghost" id="exportBtn" title="Download a backup of your data">Export</button>
-        <button class="ghost" id="importBtn" title="Restore data from a backup file">Import</button>
-      </div>
-      <div class="sync-note" id="syncNote" hidden></div>
-      <div class="backup-note" id="backupNote"></div>
-      <input type="file" id="importFile" accept="application/json" hidden>
-    </div>
-  </aside>
-  <div class="main">
-    <header class="topbar">
-      <h1 id="pageTitle">Dashboard</h1>
-      <span class="date" id="pageDate"></span>
-      <span class="spacer"></span>
-      <span id="topAction"></span>
-      <button class="searchbtn" id="searchBtn" type="button" aria-label="Search (Ctrl K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><span>Search</span><kbd>⌘K</kbd></button>
-    </header>
-    <main id="view" class="view" tabindex="-1"></main>
-  </div>
+  <header class="top" id="top">
+    <a class="brand" href="#now">Forge</a>
+    <nav class="nav" id="nav" aria-label="Main navigation"></nav>
+    <span class="right"><span class="date" id="pageDate"></span><button class="searchbtn" id="searchBtn" type="button" aria-label="All pages and search (Ctrl K)">··· <kbd>⌘K</kbd></button></span>
+  </header>
+  <div class="vhead" id="vhead"><h1 id="pageTitle">Now</h1><span class="spacer"></span><span id="topAction"></span></div>
+  <main id="view" class="view" tabindex="-1"></main>
+  <footer class="status" id="status">
+    <a class="heatbits" href="#log" id="heatStrip" aria-label="Last 8 weeks"></a>
+    <span class="heatbits"><b id="sideStreak">0</b> day streak</span>
+    <a class="heatbits" href="#today" id="todayNote"></a>
+    <span class="grow"></span>
+    <span class="sync-note" id="syncNote" hidden></span>
+    <span class="backup-note" id="backupNote"></span>
+    <button class="ghost" id="themeBtn" title="Switch theme">theme</button>
+    <button class="ghost" id="exportBtn" title="Download a backup of your data">export</button>
+    <button class="ghost" id="importBtn" title="Restore data from a backup file">import</button>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </footer>
 </div>
 <nav class="bottombar" id="bottombar" aria-label="Main navigation"></nav>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -49,9 +43,13 @@
 <script src="vendor/codemirror.js"></script>
 <script src="vendor/katex.min.js"></script>
 <script src="vendor/auto-render.min.js"></script>
-<script src="content.js?v=7"></script>
-<script src="path.js?v=7"></script>
-<script src="sync.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="vendor/clike.js"></script>
+<script src="vendor/active-line.js"></script>
+<script src="content.js?v=8"></script>
+<script src="path.js?v=8"></script>
+<script src="drills.js?v=8"></script>
+<script src="shape.js?v=8"></script>
+<script src="sync.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

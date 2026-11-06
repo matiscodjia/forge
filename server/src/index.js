@@ -5,12 +5,13 @@ import { listSources, getSource, createSource, appendParts, patchSource, deleteS
 import { listRepos, addRepo, patchRepo, deleteRepo, syncStep } from "./github.js";
 import { session, generate, answer, retire, mastery } from "./proof.js";
 import { ready } from "./ai.js";
+import { tutor } from "./tutor.js";
 
 const j = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 /** [method, pattern, handler(ctx, params)] — first match wins. */
 const ROUTES = [
-  ["GET", /^\/api\/health$/, (c) => ({ ok: true, email: c.user.email, github: !!c.env.GITHUB_TOKEN, ai: ready(c.env, "question_gen") && ready(c.env, "grading") })],
+  ["GET", /^\/api\/health$/, (c) => ({ ok: true, email: c.user.email, github: !!c.env.GITHUB_TOKEN, ai: ready(c.env, "question_gen") && ready(c.env, "grading"), tutor: ready(c.env, "tutor") })],
   ["GET", /^\/api\/state$/, (c) => getState(c.db, Math.max(0, parseInt(c.url.searchParams.get("since") || "0", 10) || 0))],
   ["PUT", /^\/api\/state$/, async (c) => putState(c.db, await c.req.json())],
   ["GET", /^\/api\/sources$/, (c) => listSources(c.db)],
@@ -30,7 +31,8 @@ const ROUTES = [
   ["GET", /^\/api\/proof\/mastery$/, (c) => mastery(c.db, c.env)],
   ["POST", /^\/api\/proof\/generate$/, (c) => generate(c.db, c.env, { force: true })],
   ["POST", /^\/api\/proof\/([\w-]+)\/answer$/, async (c, [id]) => answer(c.db, c.env, id, await c.req.json())],
-  ["POST", /^\/api\/proof\/([\w-]+)\/retire$/, (c, [id]) => retire(c.db, id)]
+  ["POST", /^\/api\/proof\/([\w-]+)\/retire$/, (c, [id]) => retire(c.db, id)],
+  ["POST", /^\/api\/tutor$/, async (c) => tutor(c.db, c.env, await c.req.json())]
 ];
 
 export default {

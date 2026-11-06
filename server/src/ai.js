@@ -6,7 +6,7 @@ export const DEFAULT_AI = {
   providers: {
     "workers-ai": { clearance: "trusted", binding: "AI", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" }
   },
-  routes: { question_gen: "workers-ai", grading: "workers-ai" }
+  routes: { question_gen: "workers-ai", grading: "workers-ai", tutor: "workers-ai" }
 };
 
 export function aiConfig(env) {
