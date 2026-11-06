@@ -273,6 +273,8 @@ kbd { font: 500 11px var(--mono); padding: 1px 6px; border-radius: 5px; border: 
 .nav { overflow-y: auto; min-height: 0; }
 .backup-note { font-size: 12px; color: var(--faint); text-align: center; min-height: 16px; }
 .backup-note.stale { color: var(--warn); }
+.sync-note { font-size: 12px; color: var(--good); text-align: center; }
+.sync-note.warn { color: var(--warn); }
 .searchbtn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); padding: 6px 8px 6px 10px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 .searchbtn:hover { color: var(--fg); border-color: var(--line-2); }
 .searchbtn svg { width: 16px; height: 16px; }

@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "forge",
+  "main": "server/src/index.js",
+  "compatibility_date": "2026-10-01",
+  // Static app from web/; only /api/* runs the Worker.
+  "assets": { "directory": "web", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "forge", "database_id": "REPLACE_AFTER_d1_create", "migrations_dir": "server/migrations" }
+  ],
+  // ACCESS_AUD and ACCESS_TEAM are set after Cloudflare Access is enabled (see server/README.md).
+  "vars": { "ACCESS_TEAM": "", "ACCESS_AUD": "", "ACCESS_EMAIL": "" },
+  "observability": { "enabled": true }
+}

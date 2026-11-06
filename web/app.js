@@ -55,7 +55,21 @@ const hydrate = (d) => { const x = Object.assign(blank(), d || {}); ["notes", "l
 let S;
 try { S = hydrate(JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { S = blank(); }
 let saveT = null;
-const flush = () => { clearTimeout(saveT); saveT = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Couldn't save: browser storage is full or blocked. Export a backup now."); } };
+const flush = () => { clearTimeout(saveT); saveT = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Couldn't save: browser storage is full or blocked. Export a backup now."); } schedSync(); };
+
+/* Cloud sync (only when served by the Forge Worker; on any other host Forge stays local-only). */
+let syncT = null;
+const schedSync = (ms = 1500) => { if (!Sync || !Sync.enabled) return; clearTimeout(syncT); syncT = setTimeout(() => Sync.sync(), ms); };
+const SYNC_TXT = { synced: ["Synced", ""], syncing: ["Syncing…", ""], offline: ["Offline · saved on this device", "warn"], "signed-out": ["Signed out · reload to sign in", "warn"], local: ["", ""] };
+const Sync = window.ForgeSync ? ForgeSync.create({
+  getState: () => S,
+  onRemoteChange: () => {
+    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+    const a = document.activeElement; const typing = a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT" || a.closest(".CodeMirror"));
+    if (!typing) render();
+  },
+  onStatus: (s) => { const el = document.getElementById("syncNote"); if (!el) return; const [t, c] = SYNC_TXT[s] || ["", ""]; el.hidden = !t; el.textContent = t; el.className = "sync-note " + c; }
+}) : null;
 const save = () => { clearTimeout(saveT); saveT = setTimeout(flush, 150); };
 window.addEventListener("pagehide", () => { if (saveT) flush(); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && saveT) flush(); });
@@ -87,7 +101,7 @@ function nav() {
   $("#bottombar").innerHTML = MOBILE.map((k) => `<a href="#${k}" ${k === r ? 'aria-current="page"' : ""}>${icon(k)}<span>${ROUTES.find((x) => x[0] === k)[1]}</span></a>`).join("") + `<button type="button" id="moreBtn" ${MOBILE.includes(r) ? "" : 'aria-current="page"'}>${icon("more")}<span>More</span></button>`;
   $("#moreBtn").onclick = () => Palette.open("");
   $("#sideStreak").textContent = streak();
-  const be = $("#backupNote"); if (be) { const d = S.lastExport ? Math.floor((Date.now() - S.lastExport) / 864e5) : null; const hasData = S.notes.length || S.log.length || Object.keys(S.days).length; be.textContent = d == null ? (hasData ? "No backup yet" : "") : d === 0 ? "Backed up today" : `Last backup ${d}d ago`; be.className = "backup-note " + ((d == null && hasData) || d > 7 ? "stale" : ""); }
+  const be = $("#backupNote"); if (be) { const d = S.lastExport ? Math.floor((Date.now() - S.lastExport) / 864e5) : null; const hasData = S.notes.length || S.log.length || Object.keys(S.days).length; be.textContent = d == null ? (hasData ? "No backup yet" : "") : d === 0 ? "Backed up today" : `Last backup ${d}d ago`; be.className = "backup-note " + (!(Sync && Sync.enabled) && ((d == null && hasData) || d > 7) ? "stale" : ""); }
 }
 const parseHash = () => { const [h, ...rest] = (location.hash || "#dashboard").slice(1).split("/"); return { r: ROUTES.some((x) => x[0] === h) ? h : "dashboard", arg: rest.length ? decodeURIComponent(rest.join("/")) : null }; };
 const route = () => parseHash().r;
@@ -185,7 +199,7 @@ const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h <
 const fmtH = (min) => { const h = min / 60; return h >= 10 ? String(Math.round(h)) : h.toFixed(1).replace(/\.0$/, ""); };
 const noteById = (id) => S.notes.find((n) => n.id === id);
 const noteByTitle = (t) => { const k = String(t).trim().toLowerCase(); return S.notes.find((n) => (n.title || "").trim().toLowerCase() === k); };
-const newNote = (o = {}) => { const n = Object.assign({ id: uid(), title: "Untitled", body: "", tags: [], mod: null, created: Date.now(), updated: Date.now() }, o); S.notes.unshift(n); save(); return n; };
+const newNote = (o = {}) => { const n = Object.assign({ id: uid(), title: "Untitled", body: "", tags: [], mod: null, visibility: "trusted", created: Date.now(), updated: Date.now() }, o); S.notes.unshift(n); save(); return n; };
 const ext = (url) => /^https?:/.test(url) ? ' target="_blank" rel="noopener noreferrer"' : "";
 
 /* Markdown (subset) with $math$, ```code```, [[wikilinks]] and Q:/A: card lines. Everything is escaped first. */
@@ -794,7 +808,7 @@ VIEWS.library = (v) => {
   </section>
   ${tags.length ? `<section class="row" style="gap:6px">${["", ...tags].map((t) => `<button class="chip" data-tag="${esc(t)}" aria-pressed="${t === libTag}">${t ? "#" + esc(t) : "All"}</button>`).join("")}</section>` : ""}
   <section id="lres">${!S.notes.length ? `<div class="empty"><p style="max-width:56ch;margin:0 auto 14px">Your knowledge base. One note per idea, paper or module: Markdown, $\\LaTeX$ math, code, <code>[[links]]</code> between notes, and <code>Q:</code>/<code>A:</code> lines that become review cards.</p><div class="row" style="justify-content:center"><button class="btn primary" id="guide">Create a guide note</button><button class="btn" id="blank">Blank note</button></div></div>`
-    : list.length ? `<div class="notes">${list.map((n) => { const c = noteCards(n).length, m = n.mod && modById(n.mod); const snip = (n.body || "").replace(/[#*`>$\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 150); return `<a class="note-card" href="#library/${n.id}"><b>${esc(n.title || "Untitled")}</b><p>${esc(snip) || '<span class="faint">Empty</span>'}</p><div class="row" style="gap:6px">${m ? `<span class="pill acc">${esc(m.t)}</span>` : ""}${(n.tags || []).map((t) => `<span class="pill">#${esc(t)}</span>`).join("")}${c ? `<span class="pill ember">${c} cards</span>` : ""}<span class="faint num" style="margin-left:auto;font-size:12px">${ymd(new Date(n.updated))}</span></div></a>`; }).join("")}</div>`
+    : list.length ? `<div class="notes">${list.map((n) => { const c = noteCards(n).length, m = n.mod && modById(n.mod); const snip = (n.body || "").replace(/[#*`>$\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 150); return `<a class="note-card" href="#library/${n.id}"><b>${esc(n.title || "Untitled")}</b><p>${esc(snip) || '<span class="faint">Empty</span>'}</p><div class="row" style="gap:6px">${m ? `<span class="pill acc">${esc(m.t)}</span>` : ""}${n.visibility === "private" ? `<span class="pill warn" title="Never sent to an AI">private</span>` : n.visibility === "ai" ? `<span class="pill" title="Any AI provider may read it">ai</span>` : ""}${(n.tags || []).map((t) => `<span class="pill">#${esc(t)}</span>`).join("")}${c ? `<span class="pill ember">${c} cards</span>` : ""}<span class="faint num" style="margin-left:auto;font-size:12px">${ymd(new Date(n.updated))}</span></div></a>`; }).join("")}</div>`
     : `<div class="empty">No note matches.</div>`}</section>`;
   const lq = $("#lq"); lq.oninput = () => { libQ = lq.value; const pos = lq.selectionStart; render(); const n = $("#lq"); n.focus(); n.setSelectionRange(pos, pos); };
   $$("[data-tag]", v).forEach((b) => b.onclick = () => { libTag = b.dataset.tag; render(); });
@@ -813,6 +827,7 @@ function noteView(v, n) {
       <input class="input note-title" id="ntitle" value="${esc(n.title)}" placeholder="Title" aria-label="Title">
       <div class="row" style="flex-wrap:nowrap">
         <label class="field" style="flex:1"><span>Tags, comma-separated</span><input class="input" id="ntags" value="${esc((n.tags || []).join(", "))}" placeholder="llm, paper"></label>
+        <label class="field"><span>AI visibility</span><select class="input" id="nvis" title="Who may read this note">${[["private", "Private · never sent to an AI"], ["trusted", "Trusted providers only"], ["ai", "Any AI provider"]].map(([k, t]) => `<option value="${k}" ${(n.visibility || "trusted") === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <label class="field" style="flex:1"><span>Path module</span><select class="input" id="nmod"><option value="">None</option>${C.stages.map((s) => `<optgroup label="${esc(s.t)}">${C.modules.filter((m) => m.stage === s.k).map((m) => `<option value="${m.id}" ${n.mod === m.id ? "selected" : ""}>${esc(m.t)}</option>`).join("")}</optgroup>`).join("")}</select></label>
       </div>
       <div class="row" style="justify-content:space-between"><div class="seg" role="group" aria-label="View">${[["edit", "Write"], ["split", "Split"], ["view", "Read"]].map(([k, t]) => `<button data-nm="${k}" aria-pressed="${noteMode === k}">${t}</button>`).join("")}</div>
@@ -835,6 +850,7 @@ function noteView(v, n) {
   $("#ntitle").onchange = () => render();
   $("#ntags").onchange = (e) => touch((x) => { x.tags = e.target.value.split(",").map((t) => t.trim().replace(/^#/, "").toLowerCase()).filter(Boolean); });
   $("#nmod").onchange = (e) => touch((x) => { x.mod = e.target.value || null; });
+  $("#nvis").onchange = (e) => { touch((x) => { x.visibility = e.target.value; }); render(); };
   $$("[data-nm]", v).forEach((b) => b.onclick = () => { noteMode = b.dataset.nm; $(".note-ed").dataset.mode = noteMode; $$("[data-nm]", v).forEach((x) => x.setAttribute("aria-pressed", x === b)); });
   $("#ndel").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Click again to delete"; return; } S.notes = S.notes.filter((x) => x.id !== n.id); save(); toast("Note deleted."); location.hash = "#library"; };
   if (!n.body && n.title === "Untitled") { const t = $("#ntitle"); t.focus(); t.select(); }
@@ -977,6 +993,12 @@ document.addEventListener("keydown", (e) => {
 applyTheme();
 render();
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+if (Sync) {
+  Sync.detect().then((ok) => { if (ok) Sync.sync(); });
+  setInterval(() => { if (!document.hidden) Sync.sync(); }, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.sync(); });
+  window.addEventListener("online", () => Sync.detect().then((ok) => ok && Sync.sync()));
+}
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 document.addEventListener("visibilitychange", () => { if (!document.hidden && ["dashboard", "today"].includes(route())) render(); });
 })();

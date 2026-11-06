@@ -1,3 +1,6 @@
 forge-site.zip
 .DS_Store
 __pycache__/
+node_modules/
+.wrangler/
+.dev.vars

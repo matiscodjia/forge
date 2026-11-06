@@ -13,6 +13,6 @@ A personal training system for going deep in ML engineering, from first principl
 
 Search everything with **⌘K / Ctrl K** or `/`.
 
-All data stays in your browser (localStorage, with persistent storage requested). Open tabs stay in sync. Use **Export** regularly: the sidebar shows how old your last backup is.
+Hosted on Cloudflare: one Worker serves the app and the API, D1 holds the data, Cloudflare Access lets only you in. The app works offline from localStorage and syncs when online; the sidebar shows the sync status. See `server/README.md`.
 
-Static site: open `index.html` through any web server (`python3 -m http.server`), or GitHub Pages. Curriculum and seed cards live in `path.js`; daily blocks, problems and diagnostics in `content.js`.
+Layout: `web/` is the app (curriculum and seed cards in `web/path.js`; blocks, problems and diagnostics in `web/content.js`), `server/` the Worker, migrations and tests. Served from any other static host, the app runs local-only.

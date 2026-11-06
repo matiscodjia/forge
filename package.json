@@ -1,0 +1,13 @@
+{
+  "name": "forge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test server/test/",
+    "dev": "wrangler d1 migrations apply forge --local && wrangler dev",
+    "deploy": "wrangler d1 migrations apply forge --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.158.0"
+  }
+}
