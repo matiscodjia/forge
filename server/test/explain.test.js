@@ -44,3 +44,16 @@ test("routes", async () => {
   assert.match((await call("POST", "/api/explain", { front: "What is a linear map?" })).text, /Intuition/);
   await assert.rejects(call("POST", "/api/proof/nope/giveup", {}), (e) => e.status === 404);
 });
+
+test("references are study material that shares the topic, never code that merely mentions a word", async () => {
+  const db = fakeD1();
+  const repo = await createSource(db, { kind: "course", title: "sentinel/sentinel-sim/pyproject.toml", origin: "github" });
+  await appendParts(db, repo.id, { parts: [{ text: '[project]\nname = "sentinel-sim"\ndependencies = ["numpy", "matplotlib", "scipy"]\n'.repeat(4) }] });
+  await db.prepare("UPDATE sources SET kind = 'repo' WHERE id = ?").bind(repo.id).run(); // repos come from the GitHub sync
+  const once = await createSource(db, { kind: "course", title: "Plotting notes", origin: "manual" });
+  await appendParts(db, once.id, { parts: [{ text: "I plot the trajectories with matplotlib and numpy arrays, nothing about reductions. ".repeat(3) }] });
+  const good = await createSource(db, { kind: "course", title: "NumPy broadcasting and reductions", origin: "numpy.pdf" });
+  await appendParts(db, good.id, { parts: [{ text: "A reduction over an axis removes that axis; keepdims keeps it with size one so the result broadcasts back. ".repeat(3) }] });
+  const r = await related(db, "numpy axis keepdims");
+  assert.deepEqual(r.map((x) => x.title), ["NumPy broadcasting and reductions"]);
+});

@@ -17,16 +17,23 @@ Write, in this order, each part starting with its bold label:
 **Check yourself.** One question he should now be able to answer from memory.
 At most 250 words, plain Markdown paragraphs, no headings. Rely on the sources and standard textbook knowledge; if they are thin, say which reference to open.`;
 
-/** Brain passages related to the text (OR of its rarer words, best bm25 first), one per source. */
-export async function related(db, text, { exclude = [], limit = 3 } = {}) {
+/** Study material only: code and commits are not something to read to understand a concept (a pyproject.toml that
+    lists numpy is not a reference on numpy axes). */
+export const READABLE = ["note", "course", "wiki", "decision", "file"];
+/** Brain passages related to the text (OR of its rarer words, best bm25 first), one per source, and only when the
+    passage shares at least two of those words (or the only one, for a one-word topic). */
+export async function related(db, text, { exclude = [], limit = 3, kinds = READABLE } = {}) {
   const toks = [...new Set((String(text).toLowerCase().match(/[\p{L}\p{N}_]{4,}/gu) || []).filter((t) => !STOP.has(t)))].slice(0, 10);
   if (!toks.length) return [];
   const r = await db.prepare(
     `SELECT c.source_id, s.kind, s.title, s.origin, c.text, snippet(chunks_fts, 0, '', '', '…', 16) AS snip, bm25(chunks_fts) AS score
      FROM chunks_fts JOIN chunks c ON c.rowid = chunks_fts.rowid JOIN sources s ON s.id = c.source_id
-     WHERE chunks_fts MATCH ?1 AND s.deleted = 0 ORDER BY score LIMIT 25`).bind(toks.map((t) => `"${t}"`).join(" OR ")).all();
-  const seen = new Set(exclude), out = [];
-  for (const x of r.results) { if (seen.has(x.source_id)) continue; seen.add(x.source_id); out.push(x); if (out.length >= limit) break; }
+     WHERE chunks_fts MATCH ?1 AND s.deleted = 0 AND s.kind IN (SELECT value FROM json_each(?2)) ORDER BY score LIMIT 25`).bind(toks.map((t) => `"${t}"`).join(" OR "), JSON.stringify(kinds)).all();
+  const seen = new Set(exclude), out = [], need = Math.min(2, toks.length);
+  for (const x of r.results) {
+    if (seen.has(x.source_id)) continue;
+    const words = new Set(String(x.text).toLowerCase().match(/[\p{L}\p{N}_]{4,}/gu) || []);
+    if (toks.filter((t) => words.has(t)).length < need) continue; seen.add(x.source_id); out.push(x); if (out.length >= limit) break; }
   return out;
 }
 

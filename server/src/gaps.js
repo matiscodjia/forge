@@ -3,9 +3,11 @@
 // memory score 70+; then it is mastered on its own. Sources of a weak spot: he asks, the tutor panel, a note, the planner.
 import { ask, parseJSON, today } from "./proof.js";
 import { ready } from "./ai.js";
-import { related } from "./explain.js";
+import { related, READABLE } from "./explain.js";
 
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
+/** Packs built before code was excluded may still point at repo files: hide them. */
+const readable = (p) => ({ ...p, brain: (p.brain || []).filter((r) => READABLE.includes(r.kind)) });
 const cut = (s, n) => String(s ?? "").slice(0, n);
 const uid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 20);
 const norm = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -78,7 +80,7 @@ const latest = `SELECT q.id, q.prompt, q.due, q.reps, (SELECT r.score FROM revie
   FROM questions q WHERE q.gap_id = ? AND q.retired = 0 ORDER BY q.created`;
 function shape(g, qs) {
   const proven = qs.filter((q) => q.score != null && q.score >= 70).length;
-  return { id: g.id, topic: g.topic, track: g.track, origin: g.origin, status: g.status, created: g.created, closed: g.closed, ...(g.pack ? JSON.parse(g.pack) : {}),
+  return { id: g.id, topic: g.topic, track: g.track, origin: g.origin, status: g.status, created: g.created, closed: g.closed, ...(g.pack ? readable(JSON.parse(g.pack)) : {}),
     questions: qs.map((q) => ({ id: q.id, prompt: q.prompt, due: q.due, answered: q.reps > 0, score: q.score })), proven, total: qs.length };
 }
 
