@@ -26,27 +26,51 @@ const I = {
   play: '<path d="M7 5v14l11-7z"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   bolt: '<path d="M13 3 5 14h6l-1 7 8-11h-6z"/>',
-  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'
+  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  path: '<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 18h5a3.5 3.5 0 0 0 0-7h-2a3.5 3.5 0 0 1 0-7h5"/>',
+  library: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10v16H5.5A1.5 1.5 0 0 1 4 18.5zM10 4h4v16h-4zM14.5 4.6l3.9-1 2.9 15.6-3.9.8z"/>',
+  review: '<rect x="3" y="7" width="14" height="13" rx="2"/><path d="M7 4h12a2 2 0 0 1 2 2v11"/><path d="m7.5 13.5 2 2 3.5-4"/>',
+  log: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2h5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
 const ROUTES = [
-  ["dashboard", "Dashboard"], ["today", "Today"], ["arena", "Arena"], ["diagnostic", "Diagnostic"],
-  ["skills", "Skills"], ["scorecard", "Scorecard"], ["pipeline", "Pipeline"], ["rules", "Rules"]
+  ["dashboard", "Home", ""], ["today", "Today", ""],
+  ["path", "Path", "Learn"], ["library", "Library", "Learn"], ["review", "Review", "Learn"],
+  ["arena", "Arena", "Practice"], ["diagnostic", "Diagnostic", "Practice"],
+  ["log", "Log", "Track"], ["skills", "Skills", "Track"], ["scorecard", "Scorecard", "Track"], ["pipeline", "Pipeline", "Track"], ["rules", "Rules", "Track"]
 ];
-const MOBILE = ["dashboard", "today", "arena", "diagnostic", "pipeline"];
+const MOBILE = ["dashboard", "today", "path", "review"];
+const NB = () => C.blocks.length; /* blocks per day */
+const BANK = 5;                  /* blocks needed to bank a day */
 
 /* ---------------- state ---------------- */
 const KEY = "forge.v1";
-const blank = () => ({ days: {}, weeks: {}, practice: {}, code: {}, mocks: [], theory: [], skills: {}, pipeline: [], mock: null, theoryRun: null, sel: "two-sum", theme: null });
+const blank = () => ({ v: 2, days: {}, weeks: {}, practice: {}, code: {}, mocks: [], theory: [], skills: {}, pipeline: [], mock: null, theoryRun: null, sel: "two-sum", theme: null,
+  path: {}, notes: [], srs: {}, revDays: {}, log: [], lastExport: null });
+const hydrate = (d) => { const x = Object.assign(blank(), d || {}); ["notes", "log", "mocks", "theory", "pipeline"].forEach((k) => { if (!Array.isArray(x[k])) x[k] = []; }); ["path", "srs", "revDays", "days", "weeks", "practice", "code", "skills"].forEach((k) => { if (!x[k] || typeof x[k] !== "object" || Array.isArray(x[k])) x[k] = {}; }); x.v = 2; return x; };
 let S;
-try { S = Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { S = blank(); }
+try { S = hydrate(JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { S = blank(); }
 let saveT = null;
-const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Couldn't save: browser storage is full or blocked."); } }, 150); };
+const flush = () => { clearTimeout(saveT); saveT = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Couldn't save: browser storage is full or blocked. Export a backup now."); } };
+const save = () => { clearTimeout(saveT); saveT = setTimeout(flush, 150); };
+window.addEventListener("pagehide", () => { if (saveT) flush(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && saveT) flush(); });
+/* Another tab wrote: adopt its state so neither tab silently overwrites the other. */
+window.addEventListener("storage", (e) => {
+  if (e.key !== KEY || !e.newValue) return;
+  try { S = hydrate(JSON.parse(e.newValue)); } catch (err) { return; }
+  const a = document.activeElement; const typing = a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT" || a.closest(".CodeMirror"));
+  if (typing) toast("Updated in another tab. Your next edit continues from that version."); else render();
+});
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* ---------------- derived ---------------- */
 const dayCount = (k) => C.blocks.filter((b) => S.days[k] && S.days[k][b.k]).length;
-function streak() { let n = 0, d = now(); if (dayCount(ymd(d)) < 5) d = addDays(d, -1); while (dayCount(ymd(d)) >= 5) { n++; d = addDays(d, -1); } return n; }
+function streak() { let n = 0, d = now(); if (dayCount(ymd(d)) < BANK) d = addDays(d, -1); while (dayCount(ymd(d)) >= BANK) { n++; d = addDays(d, -1); } return n; }
 const patLevel = (pid) => { const p = S.practice[pid]; if (!p) return 0; if (p.timed) return 3; if (p.solved) return 2; return p.attempts ? 1 : 0; };
 const lastMock = () => S.mocks[S.mocks.length - 1];
 const daysLeft = () => { const t = new Date(C.start + "T00:00:00"); const d = new Date(TODAY() + "T00:00:00"); return Math.max(0, Math.round((t - d) / 864e5)); };
@@ -55,18 +79,25 @@ const theoryLast = (id) => { const xs = S.theory.filter((t) => t.part === id); r
 
 /* ---------------- shell ---------------- */
 function nav() {
-  const r = route();
-  const badge = { today: `${dayCount(TODAY())}/6`, arena: `${C.problems.filter((p) => patLevel(p.id) >= 2).length}/15` };
-  $("#nav").innerHTML = ROUTES.map(([k, t]) => `<a href="#${k}" ${k === r ? 'aria-current="page"' : ""}>${icon(k)}<span>${t}</span>${badge[k] ? `<span class="badge">${badge[k]}</span>` : ""}</a>`).join("");
-  $("#bottombar").innerHTML = MOBILE.map((k) => `<a href="#${k}" ${k === r ? 'aria-current="page"' : ""}>${icon(k)}<span>${ROUTES.find((x) => x[0] === k)[1]}</span></a>`).join("");
+  const r = route(), rq = SRS.queue(), due = rq.due.length + rq.fresh.length;
+  const badge = { today: `${dayCount(TODAY())}/${NB()}`, arena: `${C.problems.filter((p) => patLevel(p.id) >= 2).length}/${C.problems.length}`, path: `${modsDone()}/${C.modules.length}`, review: due ? String(due) : "" };
+  let g = null, html = "";
+  ROUTES.forEach(([k, t, grp]) => { if (grp !== g) { g = grp; if (grp) html += `<div class="nav-g">${grp}</div>`; } html += `<a href="#${k}" ${k === r ? 'aria-current="page"' : ""}>${icon(k)}<span>${t}</span>${badge[k] ? `<span class="badge">${badge[k]}</span>` : ""}</a>`; });
+  $("#nav").innerHTML = html;
+  $("#bottombar").innerHTML = MOBILE.map((k) => `<a href="#${k}" ${k === r ? 'aria-current="page"' : ""}>${icon(k)}<span>${ROUTES.find((x) => x[0] === k)[1]}</span></a>`).join("") + `<button type="button" id="moreBtn" ${MOBILE.includes(r) ? "" : 'aria-current="page"'}>${icon("more")}<span>More</span></button>`;
+  $("#moreBtn").onclick = () => Palette.open("");
   $("#sideStreak").textContent = streak();
+  const be = $("#backupNote"); if (be) { const d = S.lastExport ? Math.floor((Date.now() - S.lastExport) / 864e5) : null; const hasData = S.notes.length || S.log.length || Object.keys(S.days).length; be.textContent = d == null ? (hasData ? "No backup yet" : "") : d === 0 ? "Backed up today" : `Last backup ${d}d ago`; be.className = "backup-note " + ((d == null && hasData) || d > 7 ? "stale" : ""); }
 }
-const route = () => { const h = (location.hash || "#dashboard").slice(1); return ROUTES.some((r) => r[0] === h) ? h : "dashboard"; };
+const parseHash = () => { const [h, ...rest] = (location.hash || "#dashboard").slice(1).split("/"); return { r: ROUTES.some((x) => x[0] === h) ? h : "dashboard", arg: rest.length ? decodeURIComponent(rest.join("/")) : null }; };
+const route = () => parseHash().r;
+const routeArg = () => parseHash().arg;
 let cleanup = [];
 function render() {
   cleanup.forEach((f) => f()); cleanup = [];
   const r = route();
   $("#pageTitle").textContent = ROUTES.find((x) => x[0] === r)[1];
+  document.title = `${ROUTES.find((x) => x[0] === r)[1]} · Forge`;
   $("#pageDate").textContent = now().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   $("#topAction").innerHTML = "";
   const v = $("#view"); v.style.animation = "none"; void v.offsetWidth; v.style.animation = "";
@@ -81,9 +112,11 @@ function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.ad
 
 /* theme */
 function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); $("#themeBtn").textContent = S.theme ? S.theme[0].toUpperCase() + S.theme.slice(1) : "System"; }
+$("#searchBtn").onclick = () => Palette.open("");
 $("#themeBtn").onclick = () => { S.theme = S.theme === null ? "dark" : S.theme === "dark" ? "light" : null; applyTheme(); save(); };
 /* export / import */
 $("#exportBtn").onclick = () => {
+  S.lastExport = Date.now(); flush();
   const blob = new Blob([JSON.stringify(S, null, 2)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `forge-backup-${TODAY()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   toast("Backup downloaded.");
@@ -97,8 +130,11 @@ $("#importFile").onchange = async (e) => {
       const have = new Set(S.pipeline.map((p) => p.company + "|" + p.role));
       d.pipeline.forEach((p) => { if (!have.has(p.company + "|" + p.role)) S.pipeline.push(Object.assign({ id: uid() }, p)); });
       toast(`Imported ${d.pipeline.length} applications.`);
-    } else { S = Object.assign(blank(), d); toast("Backup restored."); }
-    save(); applyTheme(); render();
+    } else {
+      if (!d || typeof d !== "object" || !("days" in d || "notes" in d || "mocks" in d)) throw new Error("not a backup");
+      S = hydrate(d); toast("Backup restored.");
+    }
+    flush(); applyTheme(); render();
   } catch (err) { toast("That file isn't a Forge backup."); }
   e.target.value = "";
 };
@@ -139,52 +175,220 @@ function heatmap(weeks = 22) {
   for (let d = new Date(start); d <= addDays(end, 6 - ((end.getDay() + 6) % 7)); d = addDays(d, 1)) {
     const k = ymd(d), n = dayCount(k), fut = d > end;
     const lv = n === 0 ? 0 : n <= 1 ? 1 : n <= 3 ? 2 : n === 4 ? 3 : n === 5 ? 4 : 5;
-    cells += `<i style="background:var(--heat-${fut ? 0 : lv});${fut ? "opacity:.35" : ""}" class="${k === TODAY() ? "today" : ""}" title="${k}: ${n}/6 blocks"></i>`;
+    cells += `<i style="background:var(--heat-${fut ? 0 : lv});${fut ? "opacity:.35" : ""}" class="${k === TODAY() ? "today" : ""}" data-tip="${k}\n${n}/${NB()} blocks · ${fmtH(dayMin(k))} h logged"></i>`;
   }
   return `<div class="heat">${cells}</div>`;
+}
+
+/* ---------------- knowledge helpers ---------------- */
+const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const fmtH = (min) => { const h = min / 60; return h >= 10 ? String(Math.round(h)) : h.toFixed(1).replace(/\.0$/, ""); };
+const noteById = (id) => S.notes.find((n) => n.id === id);
+const noteByTitle = (t) => { const k = String(t).trim().toLowerCase(); return S.notes.find((n) => (n.title || "").trim().toLowerCase() === k); };
+const newNote = (o = {}) => { const n = Object.assign({ id: uid(), title: "Untitled", body: "", tags: [], mod: null, created: Date.now(), updated: Date.now() }, o); S.notes.unshift(n); save(); return n; };
+const ext = (url) => /^https?:/.test(url) ? ' target="_blank" rel="noopener noreferrer"' : "";
+
+/* Markdown (subset) with $math$, ```code```, [[wikilinks]] and Q:/A: card lines. Everything is escaped first. */
+function inline(t) {
+  const keep = []; const K = (h) => `\u0000${keep.push(h) - 1}\u0000`;
+  t = t.replace(/`([^`]+)`/g, (_, c) => K(`<code>${esc(c)}</code>`));
+  t = t.replace(/\$\$[^$]+\$\$|\$[^$\n]+\$/g, (m) => K(esc(m)));
+  t = t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, title, label) => { const n = noteByTitle(title); const l = esc(label || title); return K(n ? `<a class="wl" href="#library/${n.id}">${l}</a>` : `<a class="wl missing" href="#library" data-new="${esc(title.trim())}" title="Create this note">${l}</a>`); });
+  t = t.replace(/\[([^\]]+)\]\(((?:https?:\/\/|#)[^\s)]*)\)/g, (_, l, u) => K(`<a href="${esc(u)}"${ext(u)}>${esc(l)}</a>`));
+  t = esc(t)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\w)/g, "$1<em>$2</em>")
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+  return t.replace(/\u0000(\d+)\u0000/g, (_, n) => keep[+n]);
+}
+function md(src) {
+  const L = String(src || "").replace(/\r/g, "").split("\n");
+  let out = "", para = [], list = null, i = 0;
+  const fp = () => { if (para.length) { out += `<p>${inline(para.join(" "))}</p>`; para = []; } };
+  const fl = () => { if (list) { out += `</${list}>`; list = null; } };
+  const li = (tag, html) => { fp(); if (list !== tag) { fl(); out += `<${tag}>`; list = tag; } out += `<li>${html}</li>`; };
+  while (i < L.length) {
+    const l = L[i]; let m;
+    if (/^\s*```/.test(l)) { fp(); fl(); const b = []; i++; while (i < L.length && !/^\s*```/.test(L[i])) b.push(L[i++]); i++; out += `<pre class="code"><code>${esc(b.join("\n"))}</code></pre>`; continue; }
+    if (/^\s*\$\$/.test(l)) { fp(); fl(); const b = [l]; if (!/\$\$.*\$\$/.test(l.trim().slice(0)) || l.trim() === "$$") { i++; while (i < L.length && !/\$\$\s*$/.test(L[i])) b.push(L[i++]); if (i < L.length) b.push(L[i]); } i++; out += `<div class="mblock">${esc(b.join("\n"))}</div>`; continue; }
+    if (!l.trim()) { fp(); fl(); i++; continue; }
+    if ((m = l.match(/^(#{1,4})\s+(.*)/))) { fp(); fl(); const n = m[1].length + 1; out += `<h${n}>${inline(m[2])}</h${n}>`; i++; continue; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) { fp(); fl(); out += "<hr>"; i++; continue; }
+    if ((m = l.match(/^\s*Q:\s*(.+)/i)) && L[i + 1] && /^\s*A:\s*/i.test(L[i + 1])) { fp(); fl(); out += `<div class="qa"><div><span class="eyebrow">Q</span>${inline(m[1])}</div><div><span class="eyebrow">A</span>${inline(L[i + 1].replace(/^\s*A:\s*/i, ""))}</div></div>`; i += 2; continue; }
+    if ((m = l.match(/^(?![-*>#\s])(.+?)\s::\s(.+)$/))) { fp(); fl(); out += `<div class="qa def"><div>${inline(m[1])}</div><div>${inline(m[2])}</div></div>`; i++; continue; }
+    if ((m = l.match(/^>\s?(.*)/))) { fp(); fl(); const b = [m[1]]; i++; while (i < L.length && /^>\s?/.test(L[i])) b.push(L[i++].replace(/^>\s?/, "")); out += `<blockquote>${inline(b.join(" "))}</blockquote>`; continue; }
+    if ((m = l.match(/^\s*[-*]\s+\[( |x|X)\]\s+(.*)/))) { li("ul", `<span class="cb ${m[1].trim() ? "on" : ""}"></span>${inline(m[2])}`); i++; continue; }
+    if ((m = l.match(/^\s*[-*]\s+(.*)/))) { li("ul", inline(m[1])); i++; continue; }
+    if ((m = l.match(/^\s*\d+[.)]\s+(.*)/))) { li("ol", inline(m[1])); i++; continue; }
+    fl(); para.push(l.trim()); i++;
+  }
+  fp(); fl(); return out;
+}
+/* Cards inside a note: "Q: …" + next line "A: …", or "front :: back". Fenced code is skipped. */
+function noteCards(n) {
+  const out = [], L = (n.body || "").replace(/\r/g, "").split("\n"); let code = false;
+  for (let i = 0; i < L.length; i++) {
+    if (/^\s*```/.test(L[i])) { code = !code; continue; } if (code) continue;
+    let m;
+    if ((m = L[i].match(/^\s*Q:\s*(.+)/i)) && L[i + 1] && /^\s*A:\s*/i.test(L[i + 1])) { const f = m[1].trim(); out.push({ id: `n:${n.id}:${hash(f)}`, f, b: L[i + 1].replace(/^\s*A:\s*/i, "").trim(), src: n.title || "Untitled", note: n.id }); i++; }
+    else if ((m = L[i].match(/^(?![-*>#\s])(.+?)\s::\s(.+)$/))) { const f = m[1].trim(); out.push({ id: `n:${n.id}:${hash(f)}`, f, b: m[2].trim(), src: n.title || "Untitled", note: n.id }); }
+  }
+  return out;
+}
+
+/* ---------------- spaced repetition (SM-2 style) ---------------- */
+const NEW_PER_DAY = 12;
+const SEED = C.cards.map(([f, b]) => ({ id: "seed:" + hash(f), f, b, src: "Forge deck" }));
+const SRS = {
+  all() { return SEED.concat(...S.notes.map(noteCards)); },
+  queue() {
+    const t = TODAY(), cards = this.all().filter((c) => !(S.srs[c.id] && S.srs[c.id].off));
+    const due = cards.filter((c) => S.srs[c.id] && S.srs[c.id].due <= t).sort((a, b) => S.srs[a.id].due.localeCompare(S.srs[b.id].due));
+    const introduced = Object.values(S.srs).filter((s) => s.intro === t).length;
+    const fresh = cards.filter((c) => !S.srs[c.id]).slice(0, Math.max(0, NEW_PER_DAY - introduced));
+    return { due, fresh, cards };
+  },
+  next(st, g) {
+    st = Object.assign({ ease: 2.5, ivl: 0, reps: 0, lapses: 0, intro: TODAY() }, st);
+    if (g === 1) { st.lapses++; st.reps = 0; st.ivl = 0; st.ease = Math.max(1.3, st.ease - 0.2); }
+    else {
+      if (g === 2) { st.ivl = st.reps === 0 ? 1 : Math.max(st.ivl + 1, Math.round(st.ivl * 1.2)); st.ease = Math.max(1.3, st.ease - 0.15); }
+      else if (g === 3) st.ivl = st.reps === 0 ? 1 : st.reps === 1 ? 3 : Math.max(st.ivl + 1, Math.round(st.ivl * st.ease));
+      else { st.ivl = st.reps === 0 ? 4 : Math.max(st.ivl + 2, Math.round(st.ivl * st.ease * 1.3)); st.ease += 0.15; }
+      st.reps++;
+    }
+    st.due = ymd(addDays(now(), st.ivl)); st.last = TODAY(); return st;
+  },
+  grade(id, g) {
+    S.srs[id] = this.next(S.srs[id], g);
+    const r = S.revDays[TODAY()] = Object.assign({ n: 0, again: 0 }, S.revDays[TODAY()]); r.n++; if (g === 1) r.again++;
+    save();
+  },
+  label(ivl) { return ivl === 0 ? "now" : ivl < 30 ? `${ivl}d` : ivl < 365 ? `${Math.round(ivl / 30)}mo` : `${(ivl / 365).toFixed(1)}y`; },
+  retention(days = 30) { let n = 0, a = 0; for (let i = 0; i < days; i++) { const r = S.revDays[ymd(addDays(now(), -i))]; if (r) { n += r.n; a += r.again; } } return n ? Math.round(((n - a) / n) * 100) : null; }
+};
+
+/* ---------------- path & time log ---------------- */
+const modById = (id) => C.modules.find((m) => m.id === id);
+const stageOf = (m) => C.stages.find((s) => s.k === m.stage);
+const PS = (id) => S.path[id] || (S.path[id] = { res: {}, checks: {} });
+const modStatus = (id) => (S.path[id] && S.path[id].status) || "todo";
+const modsDone = () => C.modules.filter((m) => modStatus(m.id) === "done").length;
+const modProgress = (m) => { const p = S.path[m.id] || {}; const r = p.res || {}, c = p.checks || {}; const got = m.res.filter((_, i) => r[i]).length + m.checks.filter((_, i) => c[i]).length + (p.proof ? 1 : 0); return got / (m.res.length + m.checks.length + 1); };
+const activeMods = () => C.modules.filter((m) => modStatus(m.id) === "active");
+const nextMod = () => activeMods()[0] || C.modules.find((m) => modStatus(m.id) !== "done");
+const areaOf = (k) => C.areas.find((a) => a.k === k) || { k, t: k };
+const areaIdx = (k) => Math.max(0, C.areas.findIndex((a) => a.k === k)) + 1;
+const modMin = (id) => S.log.reduce((a, e) => a + (e.mod === id ? e.min : 0), 0);
+const weekOf = (date) => isoWeek(new Date(date + "T12:00:00"));
+const weekMin = (wk) => S.log.reduce((a, e) => a + (weekOf(e.date) === wk ? e.min : 0), 0);
+const dayMin = (d) => S.log.reduce((a, e) => a + (e.date === d ? e.min : 0), 0);
+function addLog(o) {
+  const min = Math.round(Number(o.min)); if (!(min > 0)) return false;
+  const m = o.mod ? modById(o.mod) : null;
+  S.log.push({ id: uid(), date: o.date || TODAY(), min, area: o.area || (m ? stageOf(m).area : "dl"), mod: m ? m.id : null, note: (o.note || "").trim(), src: o.src || "manual" });
+  if (m && modStatus(m.id) === "todo") { const p = PS(m.id); p.status = "active"; p.started = p.started || TODAY(); }
+  save(); return true;
+}
+function copyText(txt, ok) { return navigator.clipboard.writeText(txt).then(() => toast(ok), () => toast("Copy failed: your browser blocked clipboard access.")); }
+
+/* ---------------- tooltip ---------------- */
+const tip = document.createElement("div"); tip.className = "tip"; tip.setAttribute("role", "tooltip"); document.body.appendChild(tip);
+document.addEventListener("pointermove", (e) => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (!t) { tip.classList.remove("show"); return; }
+  tip.innerHTML = t.dataset.tip.split("\n").map((l, i) => i ? `<div>${esc(l)}</div>` : `<b>${esc(l)}</b>`).join("");
+  tip.classList.add("show");
+  const w = tip.offsetWidth, h = tip.offsetHeight; let x = e.clientX + 14, y = e.clientY - h - 12;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14; if (y < 8) y = e.clientY + 18;
+  tip.style.transform = `translate(${x}px, ${y}px)`;
+});
+
+/* Hours per ISO week, stacked by area. One axis, 2px gaps between segments, hover per week. */
+function weekStack(n = 12) {
+  const weeks = []; for (let i = n - 1; i >= 0; i--) weeks.push(isoWeek(addDays(now(), -7 * i)));
+  const data = weeks.map((wk) => { const by = {}; S.log.forEach((e) => { if (weekOf(e.date) === wk) by[e.area] = (by[e.area] || 0) + e.min / 60; }); return { wk, by, tot: Object.values(by).reduce((a, b) => a + b, 0) }; });
+  const W = 640, H = 210, Lm = 30, R = 8, T = 14, B = 24;
+  const mx = Math.ceil(Math.max(C.weeklyHours, ...data.map((d) => d.tot)) / 5) * 5;
+  const y = (v) => T + (H - T - B) * (1 - v / mx), slot = (W - Lm - R) / n, bw = Math.min(30, slot * 0.6);
+  let g = "";
+  for (let v = 0; v <= mx; v += mx > 30 ? 10 : 5) g += `<line x1="${Lm}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${Lm - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  data.forEach((d, i) => {
+    const x = Lm + i * slot + (slot - bw) / 2; let acc = 0; const segs = C.areas.filter((a) => d.by[a.k]);
+    segs.forEach((a, j) => {
+      const y0 = y(acc), y1 = y(acc + d.by[a.k]); acc += d.by[a.k];
+      const top = j === segs.length - 1, h = Math.max(0, y0 - y1 - (j ? 2 : 0)), yy = y1, r = top ? Math.min(4, h, bw / 2) : 0;
+      if (h <= 0) return;
+      g += r ? `<path d="M${x},${yy + h} V${yy + r} Q${x},${yy} ${x + r},${yy} H${x + bw - r} Q${x + bw},${yy} ${x + bw},${yy + r} V${yy + h} Z" fill="var(--c${areaIdx(a.k)})"/>` : `<rect x="${x}" y="${yy}" width="${bw}" height="${h}" fill="var(--c${areaIdx(a.k)})"/>`;
+    });
+    const tipTxt = [`${d.wk} · ${d.tot.toFixed(1)} h`].concat(segs.map((a) => `${a.t}: ${d.by[a.k].toFixed(1)} h`)).join("\n");
+    g += `<rect x="${Lm + i * slot}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent" data-tip="${esc(tipTxt)}"/>`;
+    if (i % (n > 8 ? 2 : 1) === (n - 1) % 2 || n <= 8) g += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${d.wk.slice(5)}</text>`;
+  });
+  g += `<line x1="${Lm}" x2="${W - R}" y1="${y(C.weeklyHours)}" y2="${y(C.weeklyHours)}" stroke="var(--muted)" stroke-dasharray="4 4"/><text x="${W - R}" y="${y(C.weeklyHours) - 6}" text-anchor="end">target ${C.weeklyHours} h</text>`;
+  const used = C.areas.filter((a) => data.some((d) => d.by[a.k]));
+  return `<div class="legend" style="gap:14px;flex-wrap:wrap;margin-bottom:8px">${used.map((a) => `<span class="row" style="gap:6px"><i style="background:var(--c${areaIdx(a.k)})"></i>${esc(a.t)}</span>`).join("")}</div><svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Deep-work hours per week by area">${g}</svg>`;
+}
+function areaBars(entries) {
+  const by = {}; entries.forEach((e) => { by[e.area] = (by[e.area] || 0) + e.min; });
+  const rows = C.areas.filter((a) => by[a.k]).sort((a, b) => by[b.k] - by[a.k]); const mx = Math.max(1, ...rows.map((a) => by[a.k]));
+  return rows.map((a) => `<div class="hbar" data-tip="${esc(`${a.t}\n${fmtH(by[a.k])} h · ${S.log.filter((e) => e.area === a.k).length} sessions`)}"><span>${esc(a.t)}</span><div class="track-b"><i style="width:${(by[a.k] / mx) * 100}%;background:var(--c${areaIdx(a.k)})"></i></div><b class="num">${fmtH(by[a.k])} h</b></div>`).join("");
 }
 
 /* ---------------- views ---------------- */
 const VIEWS = {};
 
 VIEWS.dashboard = (v) => {
-  const m = lastMock(), prev = S.mocks[S.mocks.length - 2];
-  const solved = C.problems.filter((p) => patLevel(p.id) >= 2).length, timed = C.problems.filter((p) => patLevel(p.id) === 3).length;
-  const wk = isoWeek(now()); let reach = 0; for (let i = 0; i < 7; i++) { const d = addDays(now(), -i); if (isoWeek(d) === wk && S.days[ymd(d)] && S.days[ymd(d)].reach) reach++; }
-  const td = dayCount(TODAY());
+  const td = dayCount(TODAY()), wk = isoWeek(now()), wmin = weekMin(wk), q = SRS.queue(), due = q.due.length + q.fresh.length;
   const open = C.blocks.filter((b) => !(S.days[TODAY()] && S.days[TODAY()][b.k]));
-  const hour = now().getHours(); const hello = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const nextProb = C.problems.find((p) => patLevel(p.id) < 2) || C.problems.find((p) => patLevel(p.id) < 3);
-  const headline = !S.mocks.length ? "Your first move: the 55-minute coding diagnostic." : td >= 5 ? "Today is banked. Rest is part of the plan." : `${6 - td} blocks left today. Start with the hardest one.`;
+  const hour = now().getHours(); const hello = hour < 5 ? "Late night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const nm = nextMod(), act = activeMods();
+  const headline = td >= BANK ? "Today is banked. Rest is part of the plan." : !S.log.length && !act.length ? "Start the path: one module, rebuilt from a blank file." : `${NB() - td} blocks left today. Start with the hardest one.`;
   const pts = S.mocks.map((x) => ({ v: x.score, l: x.date.slice(5) }));
   const pipeNext = S.pipeline.filter((p) => p.status !== "closed" && p.next).slice(0, 3);
+  const recentNotes = S.notes.slice().sort((a, b) => b.updated - a.updated).slice(0, 4);
   v.innerHTML = `
   <section class="hero">
     <div>
       <div class="eyebrow">${hello}, Matis</div>
       <h2 style="margin-top:8px">${esc(headline)}</h2>
-      <p>Measure the gap, train it every day, ship proof in public. Every number here comes from work you actually did.</p>
+      <p>Understand it by rebuilding it. Measure the gap, train it daily, ship proof in public. Every number here comes from work you actually did.</p>
       <div class="row">
-        ${!S.mocks.length ? `<a class="btn primary" href="#diagnostic">${icon("play")} Start diagnostic</a>` : `<a class="btn primary" href="#arena" data-go="${nextProb ? nextProb.id : ""}">${icon("play")} Train: ${esc(nextProb ? nextProb.pattern : "Arena")}</a>`}
+        ${nm ? `<a class="btn primary" href="#path/${nm.id}">${icon("play")} ${act.length ? "Continue" : "Start"}: ${esc(nm.t)}</a>` : ""}
+        ${due ? `<a class="btn" href="#review">${icon("review")} Review ${due} cards</a>` : ""}
         <a class="btn" href="#today">${icon("today")} Today's blocks</a>
       </div>
     </div>
     ${ring(daysLeft(), 116, daysLeft(), "days to 1 March")}
   </section>
   <section class="grid g-4">
-    <div class="card kpi ember"><span class="eyebrow">Streak</span><b>${streak()}</b><span class="sub">days at 5/6 blocks</span></div>
-    <div class="card kpi"><span class="eyebrow">Last coding mock</span><b>${m ? m.score : "—"}<span class="muted" style="font-size:15px">/100</span></b><span class="sub">${m ? (prev ? `<span class="delta" style="color:${m.score >= prev.score ? "var(--good)" : "var(--bad)"}">${m.score >= prev.score ? "▲" : "▼"} ${Math.abs(m.score - prev.score)}</span> vs previous` : `${m.elapsedMin} min · first mock`) : "not taken yet"}</span></div>
-    <div class="card kpi"><span class="eyebrow">Patterns</span><b>${solved}<span class="muted" style="font-size:15px">/15</span></b><span class="sub">${timed} solved under the clock</span></div>
-    <div class="card kpi"><span class="eyebrow">Outreach this week</span><b>${reach}<span class="muted" style="font-size:15px">/7</span></b><span class="sub">days with 2 messages sent</span></div>
+    <a class="card kpi ember" href="#today"><span class="eyebrow">Streak</span><b>${streak()}</b><span class="sub">days at ${BANK}/${NB()} blocks</span></a>
+    <a class="card kpi" href="#log"><span class="eyebrow">Deep work this week</span><b>${fmtH(wmin)}<span class="muted" style="font-size:15px"> / ${C.weeklyHours} h</span></b><div class="progress"><i style="width:${Math.min(100, (wmin / 60 / C.weeklyHours) * 100)}%"></i></div></a>
+    <a class="card kpi" href="#path"><span class="eyebrow">Path</span><b>${modsDone()}<span class="muted" style="font-size:15px">/${C.modules.length}</span></b><span class="sub">${act.length} active · ${S.notes.length} notes</span></a>
+    <a class="card kpi" href="#review"><span class="eyebrow">Cards to review</span><b>${due}</b><span class="sub">${SRS.retention() == null ? "retention appears after reviews" : `${SRS.retention()}% retention, 30 days`}</span></a>
+  </section>
+  <section class="grid g-main">
+    <div class="card">
+      <div class="card-h"><h3>Deep work, last 12 weeks</h3><a class="btn small" href="#log">Log</a></div>
+      ${S.log.length ? weekStack(12) : `<div class="empty">Finish a focus timer or log a session: hours by area build up here.</div>`}
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Next up</h3></div>
+      <div class="next-list">
+        ${act.slice(0, 2).map((m) => `<a class="next-item" href="#path/${m.id}"><span class="dot" style="background:var(--c${areaIdx(stageOf(m).area)})"></span><span><b>${esc(m.t)}</b> · ${Math.round(modProgress(m) * 100)}%</span><span class="pill">${fmtH(modMin(m.id))}/${m.hrs} h</span></a>`).join("")}
+        ${open.slice(0, 3).map((b) => `<a class="next-item" href="#today"><span class="dot ember"></span><span>${esc(b.t)}</span><span class="pill">${b.min ? b.min + " min" : "tonight"}</span></a>`).join("") || `<div class="next-item"><span class="dot good"></span><span>All blocks done today</span><span class="pill good">✓</span></div>`}
+        ${pipeNext.map((p) => `<a class="next-item" href="#pipeline"><span class="dot"></span><span><b>${esc(p.company)}</b> · ${esc(p.next)}</span><span class="pill acc">${esc((C.statuses.find((s) => s.k === p.status) || {}).t || "")}</span></a>`).join("")}
+      </div>
+    </div>
   </section>
   <section class="grid g-main">
     <div class="card">
       <div class="card-h"><h3>Consistency</h3><div class="legend">less ${[0, 1, 2, 3, 4, 5].map((i) => `<i style="background:var(--heat-${i})"></i>`).join("")} more</div></div>
       ${heatmap()}
-      <div class="row muted" style="margin-top:12px;font-size:13px"><span>Each square is one day. Color = blocks completed out of 6.</span></div>
+      <div class="row muted" style="margin-top:12px;font-size:13px"><span>Each square is one day. Color = blocks completed out of ${NB()}.</span></div>
     </div>
     <div class="card">
-      <div class="card-h"><h3>Skill shape</h3><span class="row" style="gap:12px;font-size:12px"><span><span style="color:var(--accent)">●</span> now</span><span><span style="color:var(--ember)">- -</span> March target</span></span></div>
+      <div class="card-h"><h3>Skill shape</h3><span class="row" style="gap:12px;font-size:12px"><span><span style="color:var(--accent)">●</span> now</span><span><span style="color:var(--ember)">- -</span> target</span></span></div>
       ${radar()}
     </div>
   </section>
@@ -194,17 +398,19 @@ VIEWS.dashboard = (v) => {
       ${pts.length ? lineChart(pts) : `<div class="empty">No mock yet. Take the 55-minute diagnostic: your first score becomes the baseline this line grows from.</div>`}
     </div>
     <div class="card">
-      <div class="card-h"><h3>Next up</h3></div>
-      <div class="next-list">
-        ${open.slice(0, 3).map((b) => `<a class="next-item" href="#today" style="text-decoration:none;color:inherit"><span class="dot ember"></span><span>${esc(b.t)}</span><span class="pill">${b.min ? b.min + " min" : "tonight"}</span></a>`).join("") || `<div class="next-item"><span class="dot good"></span><span>All blocks done today</span><span class="pill good">✓</span></div>`}
-        ${pipeNext.map((p) => `<a class="next-item" href="#pipeline" style="text-decoration:none;color:inherit"><span class="dot"></span><span><b>${esc(p.company)}</b> · ${esc(p.next)}</span><span class="pill acc">${esc((C.statuses.find((s) => s.k === p.status) || {}).t || "")}</span></a>`).join("")}
-      </div>
+      <div class="card-h"><h3>Recent notes</h3><a class="btn small" href="#library">Library</a></div>
+      ${recentNotes.length ? `<div class="next-list">${recentNotes.map((n) => `<a class="next-item" href="#library/${n.id}"><span class="dot"></span><span>${esc(n.title || "Untitled")}</span><span class="pill">${noteCards(n).length} cards</span></a>`).join("")}</div>` : `<div class="empty">Notes you write while working through the path show up here.</div>`}
     </div>
   </section>`;
-  $$("[data-go]", v).forEach((a) => a.addEventListener("click", () => { if (a.dataset.go) { S.sel = a.dataset.go; save(); } }));
 };
 
 /* ---- today ---- */
+/* A finished focus block becomes a logged session. Outreach and sleep aren't deep work. */
+const BLOCK_AREA = { code: "code", ship: "res", eng: "eng" };
+function logFocus(b) {
+  if (b.k === "fund") { const m = nextMod(); addLog({ min: b.min, mod: m ? m.id : null, area: m ? stageOf(m).area : "math", note: b.t, src: "timer" }); }
+  else if (BLOCK_AREA[b.k]) addLog({ min: b.min, area: BLOCK_AREA[b.k], note: b.t, src: "timer" });
+}
 let focus = null; try { focus = JSON.parse(sessionStorage.getItem("forge.focus") || "null"); } catch (e) {} // {k, dur, end|null, left}
 const saveFocus = () => { try { sessionStorage.setItem("forge.focus", JSON.stringify(focus)); } catch (e) {} };
 VIEWS.today = (v) => {
@@ -214,27 +420,27 @@ VIEWS.today = (v) => {
   v.innerHTML = `
   <section class="card">
     <div class="row" style="justify-content:space-between">
-      <div><div class="eyebrow">Today</div><h2 style="margin-top:6px;font-size:22px">${n}/6 blocks · ${n >= 5 ? "day banked" : `${5 - n} more to bank the day`}</h2></div>
-      <span class="pill ember">${streak()}-day streak</span>
+      <div><div class="eyebrow">Today</div><h2 style="margin-top:6px;font-size:22px">${n}/${NB()} blocks · ${n >= BANK ? "day banked" : `${BANK - n} more to bank the day`}</h2></div>
+      <span class="row"><a class="pill" href="#log" style="text-decoration:none">${fmtH(dayMin(t))} h deep work today</a><span class="pill ember">${streak()}-day streak</span></span>
     </div>
-    <div class="progress" style="margin-top:14px"><i style="width:${(n / 6) * 100}%"></i></div>
+    <div class="progress" style="margin-top:14px"><i style="width:${(n / NB()) * 100}%"></i></div>
   </section>
   <section class="blocks">${C.blocks.map((b) => `<button class="block ${d[b.k] ? "done" : ""}" data-k="${b.k}" aria-pressed="${!!d[b.k]}"><span class="tick">${icon("check")}</span><span class="meta">${b.min ? b.min + " min" : "evening"}</span><h3>${esc(b.t)}</h3><p>${esc(b.d)}</p></button>`).join("")}</section>
   <section class="card focus">
     <div><div class="eyebrow">Focus timer</div><div class="clock" id="fclock">${fmtClock(focus.end ? focus.end - Date.now() : focus.left)}</div></div>
     <div style="display:grid;gap:12px">
       <div class="seg" role="group" aria-label="Block">${C.blocks.filter((b) => b.min).map((b) => `<button data-fk="${b.k}" aria-pressed="${b.k === focus.k}">${esc(b.t)}</button>`).join("")}</div>
-      <div class="row"><button class="btn primary" id="fgo">${focus.end ? "Pause" : "Start"} ${esc(fb.t.toLowerCase())}</button><button class="btn" id="freset">Reset</button><span class="muted" style="font-size:13px">When the timer ends, the block is ticked for you.</span></div>
+      <div class="row"><button class="btn primary" id="fgo">${focus.end ? "Pause" : "Start"} ${esc(fb.t.toLowerCase())}</button><button class="btn" id="freset">Reset</button><span class="muted" style="font-size:13px">When the timer ends, the block is ticked and the time is logged${focus.k === "fund" && nextMod() ? ` to ${esc(nextMod().t)}` : ""}.</span></div>
     </div>
   </section>`;
-  $$(".block", v).forEach((b) => b.onclick = () => { S.days[t] = Object.assign({}, S.days[t], { [b.dataset.k]: !(S.days[t] || {})[b.dataset.k] }); save(); const was = n; render(); const now5 = dayCount(t); if (was < 5 && now5 >= 5) toast("Day banked. Streak +1."); });
+  $$(".block", v).forEach((b) => b.onclick = () => { S.days[t] = Object.assign({}, S.days[t], { [b.dataset.k]: !(S.days[t] || {})[b.dataset.k] }); save(); const was = n; render(); const now5 = dayCount(t); if (was < BANK && now5 >= BANK) toast("Day banked. Streak +1."); });
   $$("[data-fk]", v).forEach((b) => b.onclick = () => { if (focus.end) return toast("Pause the timer first."); const bl = C.blocks.find((x) => x.k === b.dataset.fk); focus = { k: bl.k, dur: bl.min * 60000, end: null, left: bl.min * 60000 }; saveFocus(); render(); });
   $("#fgo").onclick = () => { if (focus.end) { focus.left = focus.end - Date.now(); focus.end = null; } else { focus.end = Date.now() + focus.left; } saveFocus(); render(); };
   $("#freset").onclick = () => { focus = { k: focus.k, dur: focus.dur, end: null, left: focus.dur }; saveFocus(); render(); };
   if (focus.end) {
     const iv = setInterval(() => {
       const left = focus.end - Date.now(); const el = $("#fclock"); if (el) el.textContent = fmtClock(left);
-      if (left <= 0) { clearInterval(iv); S.days[t] = Object.assign({}, S.days[t], { [focus.k]: true }); save(); toast(`${fb.t} done.`); focus = { k: focus.k, dur: focus.dur, end: null, left: focus.dur }; saveFocus(); render(); }
+      if (left <= 0) { clearInterval(iv); S.days[t] = Object.assign({}, S.days[t], { [focus.k]: true }); logFocus(fb); save(); toast(`${fb.t} done.`); focus = { k: focus.k, dur: focus.dur, end: null, left: focus.dur }; saveFocus(); render(); }
     }, 500);
     cleanup.push(() => clearInterval(iv));
   }
@@ -442,7 +648,7 @@ VIEWS.scorecard = (v) => {
     <form id="wf" class="grid g-3" style="grid-template-columns:repeat(6,minmax(0,1fr))">
       <label class="field"><span>Week</span><input class="input" id="w_week" value="${esc(wk)}"></label>
       <label class="field"><span>Problems solved</span><input class="input" type="number" min="0" id="w_solved" value="${w.solved ?? ""}"></label>
-      <label class="field"><span>Deep-work hours</span><input class="input" type="number" min="0" step="0.5" id="w_hours" value="${w.hours ?? ""}"></label>
+      <label class="field"><span>Deep-work hours</span><input class="input" type="number" min="0" step="0.5" id="w_hours" value="${w.hours ?? ""}" placeholder="${fmtH(weekMin(wk))} logged"></label>
       <label class="field"><span>Messages sent</span><input class="input" type="number" min="0" id="w_sent" value="${w.sent ?? ""}"></label>
       <label class="field"><span>Replies</span><input class="input" type="number" min="0" id="w_rep" value="${w.replies ?? ""}"></label>
       <label class="field"><span>Interviews</span><input class="input" type="number" min="0" id="w_int" value="${w.interviews ?? ""}"></label>
@@ -499,9 +705,278 @@ VIEWS.rules = (v) => {
   <section class="rules">${C.rules.map(([h, p], i) => `<div class="card rule"><span class="k">${i + 1}</span><div><h3>${esc(h)}</h3><p>${esc(p)}</p></div></div>`).join("")}</section>`;
 };
 
+/* ---- path ---- */
+const KIND = { video: "Video", course: "Course", book: "Book", paper: "Paper", blog: "Blog", code: "Code" };
+VIEWS.path = (v) => {
+  const id = routeArg(); if (id && modById(id)) return moduleView(v, modById(id));
+  const done = modsDone(), act = activeMods(), est = C.modules.reduce((a, m) => a + m.hrs, 0), logged = S.log.reduce((a, e) => a + (e.mod ? e.min : 0), 0);
+  v.innerHTML = `
+  <section class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div style="max-width:64ch"><div class="eyebrow">The path</div><h2 style="margin-top:6px;font-size:22px">${done}/${C.modules.length} modules · ${fmtH(logged)} of ~${est} h</h2>
+        <p class="muted" style="margin-top:8px">Watch or read once. Then close everything and rebuild the deliverable on a blank file. A module is done when the proof link exists and every check is honestly true.</p></div>
+      ${(() => { const m = nextMod(); return m ? `<a class="btn primary" href="#path/${m.id}">${icon("play")} ${act.length ? "Continue" : "Start"}: ${esc(m.t)}</a>` : ""; })()}
+    </div>
+    <div class="progress" style="margin-top:14px"><i style="width:${(done / C.modules.length) * 100}%"></i></div>
+  </section>
+  ${C.stages.map((s, si) => { const ms = C.modules.filter((m) => m.stage === s.k); const d = ms.filter((m) => modStatus(m.id) === "done").length; return `
+  <section class="stage">
+    <div class="stage-h"><div><span class="eyebrow">Stage ${si} · ${esc(areaOf(s.area).t)}</span><h3>${esc(s.t)}</h3><p class="muted">${esc(s.d)}</p></div><span class="pill ${d === ms.length ? "good" : ""}">${d}/${ms.length}</span></div>
+    <div class="mods">${ms.map((m) => { const st = modStatus(m.id), pr = modProgress(m), mm = modMin(m.id); return `<a class="mod" href="#path/${m.id}"><span class="mst ${st}" aria-label="${st}"></span><span class="mt"><b>${esc(m.t)}</b><span class="muted">${esc(m.why)}</span></span><span class="meter" data-tip="${esc(`${Math.round(pr * 100)}% of resources, checks and proof`)}"><i style="width:${pr * 100}%"></i></span><span class="num muted mh">${fmtH(mm)}/${m.hrs} h</span></a>`; }).join("")}</div>
+  </section>`; }).join("")}`;
+};
+function moduleView(v, m) {
+  const p = S.path[m.id] || { res: {}, checks: {} }, st = modStatus(m.id), stg = stageOf(m), si = C.stages.indexOf(stg);
+  const idx = C.modules.indexOf(m), prev = C.modules[idx - 1], next = C.modules[idx + 1];
+  const mine = S.log.filter((e) => e.mod === m.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6), notes = S.notes.filter((n) => n.mod === m.id);
+  const allChecks = m.checks.every((_, i) => (p.checks || {})[i]);
+  $("#pageTitle").textContent = "Path"; document.title = `${m.t} · Forge`;
+  v.innerHTML = `
+  <nav class="crumbs"><a href="#path">Path</a><span>/</span><span>Stage ${si} · ${esc(stg.t)}</span></nav>
+  <section class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div style="max-width:68ch"><div class="eyebrow">${esc(areaOf(stg.area).t)} · ~${m.hrs} h · ${fmtH(modMin(m.id))} h logged</div><h2 style="margin-top:6px;font-size:24px">${esc(m.t)}</h2><p class="muted" style="margin-top:8px">${esc(m.why)}</p></div>
+      <div class="seg" role="group" aria-label="Status">${[["todo", "To do"], ["active", "Active"], ["done", "Done"]].map(([k, t]) => `<button data-st="${k}" aria-pressed="${st === k}">${t}</button>`).join("")}</div>
+    </div>
+    <div class="progress" style="margin-top:14px"><i style="width:${modProgress(m) * 100}%"></i></div>
+  </section>
+  <section class="grid g-main">
+    <div style="display:grid;gap:16px;min-width:0">
+      <div class="card"><div class="card-h"><h3>1 · Learn</h3><span class="muted" style="font-size:13px">Tick when finished, not when opened</span></div>
+        <div class="reslist">${m.res.map(([k, t, u], i) => `<label class="resitem"><input type="checkbox" data-res="${i}" ${(p.res || {})[i] ? "checked" : ""}><span class="pill">${KIND[k] || k}</span><a href="${esc(u)}"${ext(u)}>${esc(t)}</a></label>`).join("")}</div></div>
+      <div class="card"><div class="card-h"><h3>2 · Build from scratch</h3></div>
+        <p>${esc(m.build)}</p>
+        <label class="field" style="margin-top:14px"><span>Proof: repo, commit, notebook or post</span><div class="row" style="flex-wrap:nowrap"><input class="input" id="proof" placeholder="https://github.com/…" value="${esc(p.proof || "")}">${p.proof && /^https?:/.test(p.proof) ? `<a class="btn" href="${esc(p.proof)}" target="_blank" rel="noopener noreferrer">${icon("link")} Open</a>` : ""}</div></label></div>
+      <div class="card"><div class="card-h"><h3>3 · Exit checks</h3><span class="muted" style="font-size:13px">Say each one aloud, without notes</span></div>
+        <div class="keys">${m.checks.map((c, i) => `<label><input type="checkbox" data-ck="${i}" ${(p.checks || {})[i] ? "checked" : ""}><span class="math">${c}</span></label>`).join("")}</div>
+        <div class="row" style="margin-top:12px"><button class="btn" id="quiz">Copy quiz prompt for Claude</button><span class="muted" style="font-size:13px">An examiner that asks follow-ups, without giving answers.</span></div></div>
+    </div>
+    <div style="display:grid;gap:16px;min-width:0">
+      <div class="card"><div class="card-h"><h3>Log time</h3><span class="pill">${fmtH(modMin(m.id))} h</span></div>
+        <div class="row">${[25, 50, 90].map((n) => `<button class="btn small" data-add="${n}">+${n} min</button>`).join("")}</div>
+        <form id="mlog" class="row" style="margin-top:10px;flex-wrap:nowrap"><input class="input" id="mmin" type="number" min="1" max="720" placeholder="min" style="width:80px"><input class="input" id="mnote" placeholder="What you did (optional)"><button class="btn" type="submit">Log</button></form>
+        ${mine.length ? `<div class="mini-log">${mine.map((e) => `<div><span class="num muted">${e.date.slice(5)}</span><span>${esc(e.note || "Session")}</span><span class="num">${e.min} min</span></div>`).join("")}</div>` : ""}</div>
+      <div class="card"><div class="card-h"><h3>Notes</h3><button class="btn small" id="mnew">${icon("plus")} New note</button></div>
+        ${notes.length ? `<div class="next-list">${notes.map((n) => `<a class="next-item" href="#library/${n.id}"><span class="dot"></span><span>${esc(n.title || "Untitled")}</span><span class="pill">${noteCards(n).length} cards</span></a>`).join("")}</div>` : `<p class="muted" style="font-size:14px">Write what you rebuilt, the bugs you hit and 5 Q:/A: cards. They go straight into Review.</p>`}</div>
+      <div class="row" style="justify-content:space-between">${prev ? `<a class="btn small" href="#path/${prev.id}">← ${esc(prev.t)}</a>` : "<span></span>"}${next ? `<a class="btn small" href="#path/${next.id}">${esc(next.t)} →</a>` : ""}</div>
+    </div>
+  </section>`;
+  const set = (fn) => { const q = PS(m.id); fn(q); save(); };
+  $$("[data-st]", v).forEach((b) => b.onclick = () => {
+    const k = b.dataset.st;
+    if (k === "done" && st !== "done" && (!allChecks || !p.proof) && !b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Proof or checks missing. Click again"; return; }
+    set((q) => { q.status = k; if (k !== "todo") q.started = q.started || TODAY(); q.finished = k === "done" ? TODAY() : null; });
+    if (k === "done") toast(`${m.t}: done. On to the next one.`); render();
+  });
+  $$("[data-res]", v).forEach((c) => c.onchange = () => { set((q) => { q.res = q.res || {}; q.res[c.dataset.res] = c.checked; }); render(); });
+  $$("[data-ck]", v).forEach((c) => c.onchange = () => { set((q) => { q.checks = q.checks || {}; q.checks[c.dataset.ck] = c.checked; }); render(); });
+  $("#proof").onchange = (e) => { set((q) => { q.proof = e.target.value.trim(); }); render(); };
+  $$("[data-add]", v).forEach((b) => b.onclick = () => { addLog({ min: +b.dataset.add, mod: m.id }); toast(`${b.dataset.add} min logged on ${m.t}.`); render(); });
+  $("#mlog").onsubmit = (e) => { e.preventDefault(); if (addLog({ min: $("#mmin").value, mod: m.id, note: $("#mnote").value })) { toast("Session logged."); render(); } else toast("Enter the minutes first."); };
+  $("#mnew").onclick = () => { const n = newNote({ title: `${m.t} — notes`, mod: m.id, tags: [stg.area], body: `## What I rebuilt\n\n\n## Bugs I hit\n\n\n## Cards\nQ: \nA: \n` }); location.hash = `#library/${n.id}`; };
+  $("#quiz").onclick = () => copyText(`You are a demanding ML research examiner. Quiz me on "${m.t}". Ask one question at a time, wait for my answer, then grade it strictly, point out what's missing, and ask a harder follow-up. Do not give the answer unless I've tried twice. Cover these checks:\n${m.checks.map((c) => "- " + c.replace(/\$/g, "")).join("\n")}\nAlso ask me to write code for: ${m.build}`, "Prompt copied. Paste it into Claude.");
+}
+
+/* ---- library ---- */
+let libQ = "", libTag = "";
+VIEWS.library = (v) => {
+  const id = routeArg(); if (id && noteById(id)) return noteView(v, noteById(id));
+  $("#topAction").innerHTML = `<button class="btn primary small" id="nnew">${icon("plus")} New note</button>`;
+  $("#nnew").onclick = () => { const n = newNote(); location.hash = `#library/${n.id}`; };
+  const tags = [...new Set(S.notes.flatMap((n) => n.tags || []))].sort();
+  const q = libQ.trim().toLowerCase();
+  const list = S.notes.filter((n) => (!libTag || (n.tags || []).includes(libTag)) && (!q || (n.title + " " + n.body + " " + (n.tags || []).join(" ")).toLowerCase().includes(q))).sort((a, b) => b.updated - a.updated);
+  const totalCards = S.notes.reduce((a, n) => a + noteCards(n).length, 0);
+  v.innerHTML = `
+  <section class="row" style="justify-content:space-between">
+    <input class="input" id="lq" type="search" placeholder="Search ${S.notes.length} notes…" value="${esc(libQ)}" style="max-width:420px">
+    <span class="muted" style="font-size:13px">${S.notes.length} notes · ${totalCards} cards feeding Review</span>
+  </section>
+  ${tags.length ? `<section class="row" style="gap:6px">${["", ...tags].map((t) => `<button class="chip" data-tag="${esc(t)}" aria-pressed="${t === libTag}">${t ? "#" + esc(t) : "All"}</button>`).join("")}</section>` : ""}
+  <section id="lres">${!S.notes.length ? `<div class="empty"><p style="max-width:56ch;margin:0 auto 14px">Your knowledge base. One note per idea, paper or module: Markdown, $\\LaTeX$ math, code, <code>[[links]]</code> between notes, and <code>Q:</code>/<code>A:</code> lines that become review cards.</p><div class="row" style="justify-content:center"><button class="btn primary" id="guide">Create a guide note</button><button class="btn" id="blank">Blank note</button></div></div>`
+    : list.length ? `<div class="notes">${list.map((n) => { const c = noteCards(n).length, m = n.mod && modById(n.mod); const snip = (n.body || "").replace(/[#*`>$\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 150); return `<a class="note-card" href="#library/${n.id}"><b>${esc(n.title || "Untitled")}</b><p>${esc(snip) || '<span class="faint">Empty</span>'}</p><div class="row" style="gap:6px">${m ? `<span class="pill acc">${esc(m.t)}</span>` : ""}${(n.tags || []).map((t) => `<span class="pill">#${esc(t)}</span>`).join("")}${c ? `<span class="pill ember">${c} cards</span>` : ""}<span class="faint num" style="margin-left:auto;font-size:12px">${ymd(new Date(n.updated))}</span></div></a>`; }).join("")}</div>`
+    : `<div class="empty">No note matches.</div>`}</section>`;
+  const lq = $("#lq"); lq.oninput = () => { libQ = lq.value; const pos = lq.selectionStart; render(); const n = $("#lq"); n.focus(); n.setSelectionRange(pos, pos); };
+  $$("[data-tag]", v).forEach((b) => b.onclick = () => { libTag = b.dataset.tag; render(); });
+  const g = $("#guide"); if (g) g.onclick = () => { const n = newNote({ title: "How Forge notes work", tags: ["meta"], body: GUIDE }); location.hash = `#library/${n.id}`; };
+  const b = $("#blank"); if (b) b.onclick = () => { const n = newNote(); location.hash = `#library/${n.id}`; };
+};
+const GUIDE = `## Writing\nMarkdown: **bold**, *italic*, \`code\`, lists, > quotes, and headings with #.\n\nMath inline $p = \\mathrm{softmax}(z)$ or as a block:\n\n$$\\frac{\\partial L}{\\partial z} = p - y$$\n\n\`\`\`python\nlogits = x @ W + b\n\`\`\`\n\n## Linking\nLink notes with [[Attention]]. A link to a note that doesn't exist yet is dimmed: click it to create it. Each note lists its backlinks.\n\n## Cards\nEvery Q:/A: pair becomes a spaced-repetition card in Review:\n\nQ: Why scale attention by $1/\\sqrt{d_k}$?\nA: To keep score variance near 1 so softmax doesn't saturate.\n\nOne-line form, term :: definition:\n\nKV cache :: keys and values of past tokens, reused at each decoding step\n\n## Habit\nAfter each module: what you rebuilt, the bugs you hit, 5 cards. Short and in your own words.`;
+let noteMode = "split";
+function noteView(v, n) {
+  $("#pageTitle").textContent = "Library"; document.title = `${n.title || "Untitled"} · Forge`;
+  const back = S.notes.filter((x) => x.id !== n.id && new RegExp(`\\[\\[\\s*${(n.title || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*(\\|[^\\]]*)?\\]\\]`, "i").test(x.body || ""));
+  v.innerHTML = `
+  <nav class="crumbs"><a href="#library">Library</a><span>/</span><span>${esc(n.title || "Untitled")}</span></nav>
+  <section class="note-ed" data-mode="${noteMode}">
+    <div class="note-meta">
+      <input class="input note-title" id="ntitle" value="${esc(n.title)}" placeholder="Title" aria-label="Title">
+      <div class="row" style="flex-wrap:nowrap">
+        <label class="field" style="flex:1"><span>Tags, comma-separated</span><input class="input" id="ntags" value="${esc((n.tags || []).join(", "))}" placeholder="llm, paper"></label>
+        <label class="field" style="flex:1"><span>Path module</span><select class="input" id="nmod"><option value="">None</option>${C.stages.map((s) => `<optgroup label="${esc(s.t)}">${C.modules.filter((m) => m.stage === s.k).map((m) => `<option value="${m.id}" ${n.mod === m.id ? "selected" : ""}>${esc(m.t)}</option>`).join("")}</optgroup>`).join("")}</select></label>
+      </div>
+      <div class="row" style="justify-content:space-between"><div class="seg" role="group" aria-label="View">${[["edit", "Write"], ["split", "Split"], ["view", "Read"]].map(([k, t]) => `<button data-nm="${k}" aria-pressed="${noteMode === k}">${t}</button>`).join("")}</div>
+        <span class="row"><span class="pill ember" id="ncards">${noteCards(n).length} cards</span><span class="faint" id="nsaved" style="font-size:12px">Saved</span><button class="btn small" id="ndel">Delete</button></span></div>
+    </div>
+    <div class="note-panes">
+      <textarea class="input note-src" id="nbody" spellcheck="true" placeholder="Write in Markdown. $math$, [[links]], Q:/A: cards…">${esc(n.body)}</textarea>
+      <article class="md note-prev card" id="nprev">${md(n.body) || '<p class="faint">Preview appears here.</p>'}</article>
+    </div>
+    ${back.length ? `<div class="card"><div class="eyebrow" style="margin-bottom:8px">Linked from</div><div class="row" style="gap:6px">${back.map((x) => `<a class="chip" href="#library/${x.id}">${esc(x.title)}</a>`).join("")}</div></div>` : ""}
+  </section>`;
+  const cur = () => noteById(n.id);
+  let pt = null;
+  const touch = (fn) => { const x = cur(); if (!x) return; fn(x); x.updated = Date.now(); save(); $("#nsaved").textContent = "Saved"; };
+  const prev = () => { clearTimeout(pt); pt = setTimeout(() => { const x = cur(); if (!x) return; const el = $("#nprev"); if (!el) return; el.innerHTML = md(x.body) || '<p class="faint">Preview appears here.</p>'; math(el); $("#ncards").textContent = `${noteCards(x).length} cards`; }, 220); };
+  cleanup.push(() => clearTimeout(pt));
+  $("#nbody").oninput = (e) => { touch((x) => { x.body = e.target.value; }); prev(); };
+  $("#nbody").onkeydown = (e) => { if (e.key === "Tab") { e.preventDefault(); const t = e.target, s = t.selectionStart; t.setRangeText("  ", s, t.selectionEnd, "end"); t.dispatchEvent(new Event("input")); } };
+  $("#ntitle").oninput = (e) => touch((x) => { x.title = e.target.value; });
+  $("#ntitle").onchange = () => render();
+  $("#ntags").onchange = (e) => touch((x) => { x.tags = e.target.value.split(",").map((t) => t.trim().replace(/^#/, "").toLowerCase()).filter(Boolean); });
+  $("#nmod").onchange = (e) => touch((x) => { x.mod = e.target.value || null; });
+  $$("[data-nm]", v).forEach((b) => b.onclick = () => { noteMode = b.dataset.nm; $(".note-ed").dataset.mode = noteMode; $$("[data-nm]", v).forEach((x) => x.setAttribute("aria-pressed", x === b)); });
+  $("#ndel").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Click again to delete"; return; } S.notes = S.notes.filter((x) => x.id !== n.id); save(); toast("Note deleted."); location.hash = "#library"; };
+  if (!n.body && n.title === "Untitled") { const t = $("#ntitle"); t.focus(); t.select(); }
+}
+/* Clicking a dimmed [[link]] creates that note. */
+document.addEventListener("click", (e) => { const a = e.target.closest && e.target.closest("a[data-new]"); if (!a) return; e.preventDefault(); const n = noteByTitle(a.dataset.new) || newNote({ title: a.dataset.new }); location.hash = `#library/${n.id}`; });
+
+/* ---- review ---- */
+let rv = null; /* { ids: [...], shown: bool, done: n } */
+VIEWS.review = (v) => {
+  const q = SRS.queue(), byId = Object.fromEntries(q.cards.map((c) => [c.id, c]));
+  if (rv && rv.day !== TODAY()) rv = null;
+  if (!rv || !rv.ids.length) rv = { day: TODAY(), ids: q.due.map((c) => c.id).concat(q.fresh.map((c) => c.id)), shown: false, done: rv ? rv.done : 0 };
+  rv.ids = rv.ids.filter((id) => byId[id]);
+  const today = S.revDays[TODAY()] || { n: 0, again: 0 }, ret = SRS.retention();
+  const upcoming = Object.entries(S.srs).filter(([id, s]) => !s.off && byId[id] && s.due > TODAY()).map(([, s]) => s.due).sort();
+  const card = byId[rv.ids[0]];
+  const isNew = card && !S.srs[card.id];
+  v.innerHTML = `
+  <section class="grid g-4">
+    <div class="card kpi"><span class="eyebrow">Due now</span><b>${q.due.length}</b><span class="sub">cards scheduled for today or earlier</span></div>
+    <div class="card kpi"><span class="eyebrow">New today</span><b>${q.fresh.length}</b><span class="sub">of ${NEW_PER_DAY} new cards per day</span></div>
+    <div class="card kpi"><span class="eyebrow">Reviewed today</span><b>${today.n}</b><span class="sub">${today.again} forgotten</span></div>
+    <div class="card kpi"><span class="eyebrow">Retention, 30 days</span><b>${ret == null ? "—" : ret + "%"}</b><span class="sub">target 85–90%</span></div>
+  </section>
+  <section class="card review">${card ? `
+    <div class="row" style="justify-content:space-between"><span class="row" style="gap:6px"><span class="pill ${isNew ? "ember" : "acc"}">${isNew ? "new" : "review"}</span><span class="pill">${esc(card.src)}</span></span><span class="muted num" style="font-size:13px">${rv.ids.length} left</span></div>
+    <div class="rv-front md">${md(card.f)}</div>
+    ${rv.shown ? `<div class="rv-back md">${md(card.b)}</div>
+      <div class="grades">${[[1, "Again"], [2, "Hard"], [3, "Good"], [4, "Easy"]].map(([g, t]) => `<button class="btn g${g}" data-g="${g}"><span>${t}</span><span class="num faint">${SRS.label(SRS.next(S.srs[card.id], g).ivl)}</span><kbd>${g}</kbd></button>`).join("")}</div>`
+    : `<div class="row" style="justify-content:center;margin-top:8px"><button class="btn primary" id="show">Show answer <kbd>Space</kbd></button></div><p class="faint" style="text-align:center;font-size:13px">Answer aloud or on paper first. Recall is the training, not reading.</p>`}
+    ${card.note ? `<a class="faint" style="font-size:13px" href="#library/${card.note}">Edit in note →</a>` : ""}`
+  : `<div class="empty"><b style="color:var(--fg)">All caught up.</b><br>${upcoming.length ? `Next review ${upcoming[0]} · ${upcoming.filter((d) => d === upcoming[0]).length} cards.` : "Add Q:/A: lines to your notes to grow the deck."}${rv.done ? ` You reviewed ${rv.done} cards in this session.` : ""}</div>`}
+  </section>
+  <details class="card"><summary><b>Deck</b> <span class="muted">· ${q.cards.length} cards · ${Object.keys(S.srs).filter((k) => byId[k]).length} started</span></summary>
+    <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Front</th><th>Source</th><th>Due</th><th></th></tr></thead><tbody>${q.cards.map((c) => { const s = S.srs[c.id]; return `<tr><td class="md-inline">${inline(c.f)}</td><td class="muted" style="font-size:13px">${esc(c.src)}</td><td class="num muted">${s ? (s.off ? "suspended" : s.due) : "new"}</td><td><button class="btn small" data-off="${esc(c.id)}">${s && s.off ? "Resume" : "Suspend"}</button></td></tr>`; }).join("")}</tbody></table></div>
+  </details>`;
+  const show = () => { rv.shown = true; render(); };
+  const grade = (g) => { const id = rv.ids.shift(); SRS.grade(id, g); rv.done++; if (g === 1) rv.ids.push(id); rv.shown = false; if (!rv.ids.length) toast(`Session done: ${rv.done} cards.`); render(); };
+  const sb = $("#show"); if (sb) sb.onclick = show;
+  $$("[data-g]", v).forEach((b) => b.onclick = () => grade(+b.dataset.g));
+  $$("[data-off]", v).forEach((b) => b.onclick = () => { const id = b.dataset.off; const s = S.srs[id] || (S.srs[id] = { ease: 2.5, ivl: 0, reps: 0, lapses: 0, intro: TODAY(), due: TODAY() }); s.off = !s.off; save(); rv = null; render(); });
+  const key = (e) => {
+    if (Palette.isOpen() || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || !card) return;
+    if (!rv.shown && (e.key === " " || e.key === "Enter")) { e.preventDefault(); show(); }
+    else if (rv.shown && /^[1-4]$/.test(e.key)) { e.preventDefault(); grade(+e.key); }
+  };
+  document.addEventListener("keydown", key); cleanup.push(() => document.removeEventListener("keydown", key));
+};
+
+/* ---- log ---- */
+VIEWS.log = (v) => {
+  const wk = isoWeek(now()), thisW = weekMin(wk);
+  let four = 0; for (let i = 1; i <= 4; i++) four += weekMin(isoWeek(addDays(now(), -7 * i)));
+  const total = S.log.reduce((a, e) => a + e.min, 0);
+  const rows = S.log.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60);
+  const modTime = C.modules.map((m) => [m, modMin(m.id)]).filter(([, x]) => x).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  v.innerHTML = `
+  <section class="card"><div class="card-h"><h3>Log a session</h3><span class="muted" style="font-size:13px">Focus timers and module buttons log for you. Only deep work counts.</span></div>
+    <form id="lf" class="grid lform">
+      <label class="field"><span>Date</span><input class="input" type="date" id="l_date" value="${TODAY()}" max="${TODAY()}"></label>
+      <label class="field"><span>Minutes</span><input class="input" type="number" min="1" max="720" id="l_min" placeholder="50" required></label>
+      <label class="field"><span>Module</span><select class="input" id="l_mod"><option value="">None</option>${C.stages.map((s) => `<optgroup label="${esc(s.t)}">${C.modules.filter((m) => m.stage === s.k).map((m) => `<option value="${m.id}" ${modStatus(m.id) === "active" && m === activeMods()[0] ? "selected" : ""}>${esc(m.t)}</option>`).join("")}</optgroup>`).join("")}</select></label>
+      <label class="field"><span>Area</span><select class="input" id="l_area">${C.areas.map((a) => `<option value="${a.k}">${esc(a.t)}</option>`).join("")}</select></label>
+      <label class="field" style="grid-column:span 2"><span>What you did</span><input class="input" id="l_note" placeholder="Backprop through BatchNorm by hand, matched autograd"></label>
+      <button class="btn primary" type="submit">Log</button>
+    </form></section>
+  <section class="grid g-4">
+    <div class="card kpi ember"><span class="eyebrow">This week</span><b>${fmtH(thisW)}<span class="muted" style="font-size:15px"> / ${C.weeklyHours} h</span></b><div class="progress"><i style="width:${Math.min(100, (thisW / 60 / C.weeklyHours) * 100)}%"></i></div></div>
+    <div class="card kpi"><span class="eyebrow">4-week average</span><b>${fmtH(four / 4)}<span class="muted" style="font-size:15px"> h</span></b><span class="sub">per week, previous 4 weeks</span></div>
+    <div class="card kpi"><span class="eyebrow">All time</span><b>${fmtH(total)}<span class="muted" style="font-size:15px"> h</span></b><span class="sub">${S.log.length} sessions</span></div>
+    <div class="card kpi"><span class="eyebrow">Today</span><b>${fmtH(dayMin(TODAY()))}<span class="muted" style="font-size:15px"> h</span></b><span class="sub">${(() => { const k = S.log.filter((e) => e.date === TODAY()).length; return `${k} session${k === 1 ? "" : "s"}`; })()}</span></div>
+  </section>
+  <section class="card"><div class="card-h"><h3>Deep work per week, by area</h3><span class="muted" style="font-size:13px">Last 12 weeks · hover a bar</span></div>${S.log.length ? weekStack(12) : `<div class="empty">Log a session or finish a focus timer: your weeks build up here.</div>`}</section>
+  <section class="grid g-2">
+    <div class="card"><div class="card-h"><h3>Where the hours went</h3></div>${S.log.length ? areaBars(S.log) : `<div class="empty">No sessions yet.</div>`}</div>
+    <div class="card"><div class="card-h"><h3>Time per module</h3></div>${modTime.length ? `<div class="next-list">${modTime.map(([m, x]) => `<a class="next-item" href="#path/${m.id}"><span class="dot" style="background:var(--c${areaIdx(stageOf(m).area)})"></span><span>${esc(m.t)}</span><span class="pill num">${fmtH(x)} / ${m.hrs} h</span></a>`).join("")}</div>` : `<div class="empty">Log time against a module to see it here.</div>`}</div>
+  </section>
+  <section class="card"><div class="card-h"><h3>Sessions</h3><span class="muted" style="font-size:13px">Latest 60</span></div><div class="table-wrap">${rows.length ? `<table><thead><tr><th>Date</th><th>Min</th><th>Area</th><th>Module</th><th>Note</th><th></th></tr></thead><tbody>${rows.map((e) => `<tr><td class="num">${e.date}</td><td class="num">${e.min}</td><td><span class="row" style="gap:6px;flex-wrap:nowrap"><i class="sw" style="background:var(--c${areaIdx(e.area)})"></i>${esc(areaOf(e.area).t)}</span></td><td>${e.mod && modById(e.mod) ? `<a href="#path/${e.mod}">${esc(modById(e.mod).t)}</a>` : '<span class="faint">—</span>'}</td><td class="muted" style="font-size:13px">${esc(e.note)}${e.src === "timer" ? ' <span class="pill">timer</span>' : ""}</td><td><button class="x" data-ldel="${e.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No sessions yet.</div>`}</div></section>`;
+  const syncArea = () => { const m = modById($("#l_mod").value); if (m) $("#l_area").value = stageOf(m).area; };
+  $("#l_mod").onchange = syncArea; syncArea();
+  $("#lf").onsubmit = (e) => { e.preventDefault(); if (addLog({ date: $("#l_date").value || TODAY(), min: $("#l_min").value, mod: $("#l_mod").value, area: $("#l_area").value, note: $("#l_note").value })) { toast("Session logged."); render(); } else toast("Minutes must be a positive number."); };
+  $$("[data-ldel]", v).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm"; return; } S.log = S.log.filter((e) => e.id !== b.dataset.ldel); save(); render(); });
+};
+
+/* ---------------- command palette (⌘K / Ctrl K / "/") ---------------- */
+const Palette = {
+  el: null, sel: 0, list: [],
+  isOpen() { return !!this.el; },
+  items() {
+    const go = (h) => () => { location.hash = h; };
+    return [].concat(
+      ROUTES.map(([k, t, g]) => ({ t, sub: g || "Page", run: go("#" + k) })),
+      [{ t: "New note", sub: "Action", run: () => { const n = newNote(); location.hash = `#library/${n.id}`; } },
+       { t: "Log a session", sub: "Action", run: go("#log") },
+       { t: "Review due cards", sub: "Action", run: go("#review") },
+       { t: "Export backup", sub: "Action", run: () => $("#exportBtn").click() },
+       { t: "Import backup", sub: "Action", run: () => $("#importFile").click() },
+       { t: "Switch theme", sub: "Action", run: () => $("#themeBtn").click() }],
+      C.modules.map((m) => ({ t: m.t, sub: `Path · ${stageOf(m).t}`, run: go(`#path/${m.id}`) })),
+      S.notes.map((n) => ({ t: n.title || "Untitled", sub: `Note${(n.tags || []).length ? " · #" + n.tags.join(" #") : ""}`, body: n.body, run: go(`#library/${n.id}`) })),
+      C.problems.map((p) => ({ t: p.pattern, sub: `Arena · ${p.fn}()`, run: () => { S.sel = p.id; save(); location.hash = "#arena"; if (route() === "arena") render(); } })),
+      C.modules.flatMap((m) => m.res.filter((r) => /^https?:/.test(r[2])).map((r) => ({ t: r[1], sub: `${KIND[r[0]] || r[0]} · ${m.t}`, run: () => window.open(r[2], "_blank", "noopener") })))
+    );
+  },
+  open(q = "") {
+    if (this.el) return;
+    this.el = document.createElement("div"); this.el.className = "pal-back";
+    this.el.innerHTML = `<div class="pal" role="dialog" aria-modal="true" aria-label="Search"><div class="pal-in">${icon("search")}<input id="palq" placeholder="Search pages, modules, notes, papers…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><div class="pal-list" id="pall" role="listbox"></div></div>`;
+    document.body.appendChild(this.el);
+    const inp = $("#palq"); inp.value = q; inp.focus();
+    const all = this.items();
+    const draw = () => {
+      const s = inp.value.trim().toLowerCase(), toks = s.split(/\s+/).filter(Boolean);
+      this.list = (toks.length ? all.filter((it) => { const h = (it.t + " " + it.sub + " " + (it.body || "")).toLowerCase(); return toks.every((t) => h.includes(t)); }).sort((a, b) => (b.t.toLowerCase().startsWith(s) - a.t.toLowerCase().startsWith(s)) || (b.t.toLowerCase().includes(s) - a.t.toLowerCase().includes(s))) : all.slice(0, ROUTES.length + 4)).slice(0, 40);
+      this.sel = Math.min(this.sel, Math.max(0, this.list.length - 1));
+      $("#pall").innerHTML = this.list.length ? this.list.map((it, i) => `<button class="pal-it" role="option" data-i="${i}" aria-selected="${i === this.sel}"><span>${esc(it.t)}</span><span class="faint">${esc(it.sub)}</span></button>`).join("") : `<div class="faint" style="padding:14px">No match.</div>`;
+      const a = $(".pal-it[aria-selected=true]"); a && a.scrollIntoView({ block: "nearest" });
+    };
+    inp.oninput = () => { this.sel = 0; draw(); };
+    inp.onkeydown = (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); this.sel = Math.min(this.list.length - 1, this.sel + 1); draw(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); this.sel = Math.max(0, this.sel - 1); draw(); }
+      else if (e.key === "Enter") { e.preventDefault(); this.pick(this.sel); }
+      else if (e.key === "Escape") { e.preventDefault(); this.close(); }
+    };
+    this.el.onclick = (e) => { const b = e.target.closest(".pal-it"); if (b) this.pick(+b.dataset.i); else if (e.target === this.el) this.close(); };
+    draw();
+  },
+  pick(i) { const it = this.list[i]; this.close(); if (it) it.run(); },
+  close() { if (this.el) { this.el.remove(); this.el = null; } }
+};
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); Palette.isOpen() ? Palette.close() : Palette.open(""); return; }
+  const a = document.activeElement;
+  if (e.key === "/" && !Palette.isOpen() && !(a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable || a.closest(".CodeMirror")))) { e.preventDefault(); Palette.open(""); }
+});
+
 /* ---------------- boot ---------------- */
 applyTheme();
 render();
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 document.addEventListener("visibilitychange", () => { if (!document.hidden && ["dashboard", "today"].includes(route())) render(); });
 })();

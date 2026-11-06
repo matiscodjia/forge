@@ -4,7 +4,7 @@ window.FORGE = {
 
   blocks: [
     { k: "code",  t: "Timed coding",      min: 45, d: "One Arena problem. Timer on, talk aloud in English, brute force first." },
-    { k: "fund",  t: "Fundamentals",      min: 30, d: "Rebuild one idea on paper: a derivation, a proof, a from-scratch implementation." },
+    { k: "fund",  t: "Path module",       min: 50, d: "Clear due cards, then one step of your current Path module, rebuilt on a blank file. Logged to the module." },
     { k: "ship",  t: "Ship something",    min: 60, d: "A real commit to ROUILLE, SENTINEL or the ISBI work. Code, benchmark or figure." },
     { k: "reach", t: "2 outreach messages", min: 15, d: "Engineers or team leads at a target company. Short, specific, one concrete result." },
     { k: "eng",   t: "Spoken English",    min: 15, d: "Explain today's problem aloud as in an interview. Record it once a week." },
