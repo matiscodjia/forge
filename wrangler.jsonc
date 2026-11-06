@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forge",
+  "account_id": "7cdbb73a2e372e0d03327875f83b67e0",
   "main": "server/src/index.js",
   "compatibility_date": "2026-10-01",
   // Static app from web/; only /api/* runs the Worker.
