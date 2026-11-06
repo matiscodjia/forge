@@ -6,9 +6,9 @@
   // Static app from web/; only /api/* runs the Worker.
   "assets": { "directory": "web", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
   "d1_databases": [
-    { "binding": "DB", "database_name": "forge", "database_id": "REPLACE_AFTER_d1_create", "migrations_dir": "server/migrations" }
+    { "binding": "DB", "database_name": "forge", "database_id": "6604ce95-4d75-437d-8107-b825480f5f7a", "migrations_dir": "server/migrations" }
   ],
   // ACCESS_AUD and ACCESS_TEAM are set after Cloudflare Access is enabled (see server/README.md).
-  "vars": { "ACCESS_TEAM": "", "ACCESS_AUD": "", "ACCESS_EMAIL": "" },
+  "vars": { "ACCESS_TEAM": "matis-codjia", "ACCESS_AUD": "5dba9a186bf1db5fe30b80518c9b470e8821f0eaa4f57bfe1756bc0e4d800ac7", "ACCESS_EMAIL": "matis.codjia@epita.fr" },
   "observability": { "enabled": true }
 }

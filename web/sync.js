@@ -27,17 +27,17 @@ function create({ getState, onRemoteChange, onStatus = () => {}, fetch: f = (...
   const set = (s, detail) => { status = s; onStatus(s, detail); };
 
   const api = async (method, path, body) => {
-    const r = await f(path, { method, credentials: "same-origin", headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
-    if (r.status === 401 || r.status === 403) { const e = new Error("signed out"); e.auth = true; throw e; }
+    const r = await f(path, { method, credentials: "same-origin", redirect: "manual", headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    if (r.type === "opaqueredirect" || r.status === 401 || r.status === 403) { const e = new Error("signed out"); e.auth = true; throw e; } // Access session expired
     if (!r.ok) throw new Error(`${path}: ${r.status}`);
     return r.json();
   };
 
   async function detect() {
     try {
-      const r = await f("/api/health", { credentials: "same-origin" });
+      const r = await f("/api/health", { credentials: "same-origin", redirect: "manual" });
       const ok = r.ok && (r.headers.get("content-type") || "").includes("application/json");
-      enabled = ok; set(ok ? "synced" : r.status === 401 || r.status === 403 ? "signed-out" : "local");
+      enabled = ok; set(ok ? "synced" : r.type === "opaqueredirect" || r.status === 401 || r.status === 403 ? "signed-out" : "local");
     } catch (e) { enabled = false; set("local"); }
     return enabled;
   }
@@ -82,7 +82,7 @@ function create({ getState, onRemoteChange, onStatus = () => {}, fetch: f = (...
   }
 
   async function sync() {
-    if (!enabled) return false;
+    if (!enabled && !(await detect())) return false; // signed out or offline earlier: retry on the next tick
     if (busy) { again = true; return false; }
     busy = true; set("syncing");
     try {

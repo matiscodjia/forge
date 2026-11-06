@@ -995,9 +995,9 @@ render();
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if (Sync) {
   Sync.detect().then((ok) => { if (ok) Sync.sync(); });
-  setInterval(() => { if (!document.hidden) Sync.sync(); }, 60000);
+  setInterval(() => { if (!document.hidden && Sync.status !== "local") Sync.sync(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.sync(); });
-  window.addEventListener("online", () => Sync.detect().then((ok) => ok && Sync.sync()));
+  window.addEventListener("online", () => Sync.sync());
 }
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 document.addEventListener("visibilitychange", () => { if (!document.hidden && ["dashboard", "today"].includes(route())) render(); });
