@@ -2,13 +2,12 @@
 window.FORGE = {
   start: "2027-03-01",
 
+  /* Observed, never ticked by hand: Forge sees each of these happen. */
   blocks: [
-    { k: "code",  t: "Timed coding",      min: 45, d: "One Arena problem. Timer on, talk aloud in English, brute force first." },
-    { k: "fund",  t: "Path module",       min: 50, d: "Clear due cards, then one step of your current Path module, rebuilt on a blank file. Logged to the module." },
-    { k: "ship",  t: "Ship something",    min: 60, d: "A real commit to ROUILLE, SENTINEL or the ISBI work. Code, benchmark or figure." },
-    { k: "reach", t: "2 outreach messages", min: 15, d: "Engineers or team leads at a target company. Short, specific, one concrete result." },
-    { k: "eng",   t: "Spoken English",    min: 15, d: "Explain today's problem aloud as in an interview. Record it once a week." },
-    { k: "sleep", t: "In bed by 23:00",   min: 0,  d: "Interview panic starts with fatigue. Non-negotiable." }
+    { k: "code",   t: "Pass a drill",   min: 45, d: "Every test of one Arena exercise passes today." },
+    { k: "fund",   t: "Path module",    min: 25, d: "25 active minutes on your module (its page and notes), or one of its exit checks proven." },
+    { k: "ship",   t: "Ship a commit",  min: 0,  d: "A commit pushed today to a synced GitHub repository." },
+    { k: "recall", t: "Clear recall",   min: 0,  d: "Proof questions and review cards answered until nothing is due." }
   ],
 
   /* One problem per pattern. Tests live in tests.json (verified reference outputs). */
@@ -97,8 +96,6 @@ window.FORGE = {
     { k: "math",   t: "Math",              target: 4, metric: "Part 3 score", proof: "Clean derivations, checked numerically" },
     { k: "sys",    t: "PyTorch & systems", target: 4, metric: "Part 4 score, from-scratch builds", proof: "Attention, training loop, profiler report, one kernel" },
     { k: "ship",   t: "Shipped proof",     target: 4, metric: "Public artifacts others can check", proof: "ROUILLE release + benchmarks, SENTINEL demo, 1 merged OSS PR" },
-    { k: "eng",    t: "English",           target: 4, metric: "Minutes speaking per week", proof: "3-minute recorded pitch, no French pauses" },
-    { k: "reach",  t: "Visibility",        target: 4, metric: "Messages → replies → interviews", proof: "10 messages/week, 2 replies, 1 call" }
   ],
   levels: ["None", "Aware", "With help", "Alone, slow", "Alone, timed", "Can teach"],
   statuses: [

@@ -50,13 +50,13 @@ const ROUTES = [
 const TOP = ["now", "path", "arena", "proof", "review", "library", "skills", "log"];
 const MOBILE = ["now", "arena", "proof", "review"];
 const NB = () => C.blocks.length; /* blocks per day */
-const BANK = 5;                  /* blocks needed to bank a day */
+const BANK = 3;                  /* observed blocks needed to bank a day */
 
 /* ---------------- state ---------------- */
 const KEY = "forge.v1";
-const blank = () => ({ v: 2, days: {}, weeks: {}, practice: {}, code: {}, drills: {}, mocks: [], theory: [], skills: {}, pipeline: [], mock: null, theoryRun: null, sel: "two-sum", drillSel: null, arenaCol: "ml", theme: null,
+const blank = () => ({ v: 2, days: {}, weeks: {}, practice: {}, code: {}, drills: {}, activity: {}, ctx: null, mocks: [], theory: [], skills: {}, pipeline: [], mock: null, theoryRun: null, sel: "two-sum", drillSel: null, arenaCol: "ml", theme: null,
   path: {}, notes: [], srs: {}, revDays: {}, log: [], lastExport: null });
-const hydrate = (d) => { const x = Object.assign(blank(), d || {}); ["notes", "log", "mocks", "theory", "pipeline"].forEach((k) => { if (!Array.isArray(x[k])) x[k] = []; }); ["path", "srs", "revDays", "days", "weeks", "practice", "code", "skills", "drills"].forEach((k) => { if (!x[k] || typeof x[k] !== "object" || Array.isArray(x[k])) x[k] = {}; }); x.v = 2; return x; };
+const hydrate = (d) => { const x = Object.assign(blank(), d || {}); ["notes", "log", "mocks", "theory", "pipeline"].forEach((k) => { if (!Array.isArray(x[k])) x[k] = []; }); ["path", "srs", "revDays", "days", "weeks", "practice", "code", "skills", "drills", "activity"].forEach((k) => { if (!x[k] || typeof x[k] !== "object" || Array.isArray(x[k])) x[k] = {}; }); x.v = 2; return x; };
 let S;
 try { S = hydrate(JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { S = blank(); }
 let saveT = null;
@@ -64,7 +64,7 @@ const flush = () => { clearTimeout(saveT); saveT = null; try { localStorage.setI
 
 /* Cloud sync (only when served by the Forge Worker; on any other host Forge stays local-only). */
 let syncT = null;
-const schedSync = (ms = 1500) => { if (!Sync || !Sync.enabled) return; clearTimeout(syncT); syncT = setTimeout(() => Sync.sync(), ms); };
+const schedSync = (ms = 1500) => { if (!Sync || !Sync.enabled) return; clearTimeout(syncT); syncT = setTimeout(() => { syncT = null; Sync.sync(); }, ms); };
 const SYNC_TXT = { synced: ["Synced", ""], syncing: ["Syncing…", ""], offline: ["Offline · saved on this device", "warn"], "signed-out": ["Signed out · reload to sign in", "warn"], local: ["", ""] };
 const Sync = window.ForgeSync ? ForgeSync.create({
   getState: () => S,
@@ -88,7 +88,13 @@ window.addEventListener("storage", (e) => {
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* ---------------- derived ---------------- */
-const dayCount = (k) => C.blocks.filter((b) => S.days[k] && S.days[k][b.k]).length;
+/* Observed day: every block is detected from what happened, never ticked by hand. */
+const ACT = (d = TODAY()) => S.activity[d] || (S.activity[d] = { pass: 0, min: {}, recall: 0, cleared: false, checks: 0 });
+let commitDays = {}; try { commitDays = JSON.parse(localStorage.getItem("forge.commits") || "{}"); } catch (e) {}
+let checkProofs = {}, todayPlan = null;
+const modFocusMin = (d) => { const a = S.activity[d]; return a ? Object.entries(a.min || {}).reduce((x, [k, v]) => x + (k.startsWith("mod:") ? v : 0), 0) : 0; };
+function observed(d) { const a = S.activity[d] || {}; return { code: (a.pass || 0) > 0, fund: modFocusMin(d) >= 25 || (a.checks || 0) > 0, ship: (commitDays[d] || 0) > 0, recall: (a.recall || 0) > 0 && !!a.cleared }; }
+const dayCount = (k) => { const o = observed(k); return C.blocks.filter((b) => o[b.k]).length; };
 function streak() { let n = 0, d = now(); if (dayCount(ymd(d)) < BANK) d = addDays(d, -1); while (dayCount(ymd(d)) >= BANK) { n++; d = addDays(d, -1); } return n; }
 const patLevel = (pid) => { const p = S.practice[pid]; if (!p) return 0; if (p.timed) return 3; if (p.solved) return 2; return p.attempts ? 1 : 0; };
 const lastMock = () => S.mocks[S.mocks.length - 1];
@@ -179,7 +185,7 @@ function lineChart(points, { h = 200, target = 80 } = {}) {
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Score over time">${g}<path d="${line}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linejoin="round"/>${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.v)}" r="4" fill="var(--fg)" stroke="var(--bg)" stroke-width="2"/><circle cx="${x(i)}" cy="${y(p.v)}" r="12" fill="transparent" data-tip="${esc(`${p.l}\n${p.v}/100`)}"/>`).join("")}<text x="${x(points.length - 1)}" y="${y(last.v) - 12}" text-anchor="middle" style="fill:var(--fg)">${last.v}</text>${labels}</svg>`;
 }
 /* Consistency heat: the only orange in Forge. Same levels everywhere (grid on Now, strip in the status bar). */
-const heatLv = (n) => n === 0 ? 0 : n <= 1 ? 1 : n <= 3 ? 2 : n === 4 ? 3 : n === 5 ? 4 : 5;
+const heatLv = (n) => n <= 0 ? 0 : Math.min(5, 1 + Math.round(((n - 1) / Math.max(1, NB() - 1)) * 4));
 const heatTip = (k) => `${k}\n${dayCount(k)}/${NB()} blocks · ${fmtH(dayMin(k))} h logged`;
 function heatGrid(weeks = 26, cell = 9, gap = 3) {
   const end = now(), start = addDays(end, -((weeks - 1) * 7 + ((end.getDay() + 6) % 7))); let g = "", i = 0;
@@ -275,7 +281,7 @@ const SRS = {
     st.due = ymd(addDays(now(), st.ivl)); st.last = TODAY(); return st;
   },
   grade(id, g) {
-    S.srs[id] = this.next(S.srs[id], g);
+    S.srs[id] = this.next(S.srs[id], g); ACT().recall++;
     const r = S.revDays[TODAY()] = Object.assign({ n: 0, again: 0 }, S.revDays[TODAY()]); r.n++; if (g === 1) r.again++;
     save();
   },
@@ -287,9 +293,13 @@ const SRS = {
 const modById = (id) => C.modules.find((m) => m.id === id);
 const stageOf = (m) => C.stages.find((s) => s.k === m.stage);
 const PS = (id) => S.path[id] || (S.path[id] = { res: {}, checks: {} });
-const modStatus = (id) => (S.path[id] && S.path[id].status) || "todo";
+/* A module's state comes from evidence: its exit checks proven in Proof, a proof link, time spent on it. */
+const ckey = (m, i) => `${m.id}#${i}`;
+const checkProven = (m, i) => !!(checkProofs[ckey(m, i)] && checkProofs[ckey(m, i)].proven);
+const modProvenN = (m) => m.checks.filter((_, i) => checkProven(m, i)).length;
+const modStatus = (id) => { const m = C.modules.find((x) => x.id === id); if (!m) return "todo"; const p = S.path[id] || {}; if (modProvenN(m) === m.checks.length && p.proof) return "done"; return modMin(id) > 0 || modProvenN(m) || p.proof ? "active" : "todo"; };
 const modsDone = () => C.modules.filter((m) => modStatus(m.id) === "done").length;
-const modProgress = (m) => { const p = S.path[m.id] || {}; const r = p.res || {}, c = p.checks || {}; const got = m.res.filter((_, i) => r[i]).length + m.checks.filter((_, i) => c[i]).length + (p.proof ? 1 : 0); return got / (m.res.length + m.checks.length + 1); };
+const modProgress = (m) => (modProvenN(m) + (S.path[m.id] && S.path[m.id].proof ? 1 : 0)) / (m.checks.length + 1);
 const activeMods = () => C.modules.filter((m) => modStatus(m.id) === "active");
 const nextMod = () => activeMods()[0] || C.modules.find((m) => modStatus(m.id) !== "done");
 const areaOf = (k) => C.areas.find((a) => a.k === k) || { k, t: k };
@@ -302,7 +312,6 @@ function addLog(o) {
   const min = Math.round(Number(o.min)); if (!(min > 0)) return false;
   const m = o.mod ? modById(o.mod) : null;
   S.log.push({ id: uid(), date: o.date || TODAY(), min, area: o.area || (m ? stageOf(m).area : "dl"), mod: m ? m.id : null, note: (o.note || "").trim(), src: o.src || "manual" });
-  if (m && modStatus(m.id) === "todo") { const p = PS(m.id); p.status = "active"; p.started = p.started || TODAY(); }
   save(); return true;
 }
 function copyText(txt, ok) { return navigator.clipboard.writeText(txt).then(() => toast(ok), () => toast("Copy failed: your browser blocked clipboard access.")); }
@@ -364,28 +373,30 @@ function nextDrill() {
 }
 function nowItems() {
   const d = S.days[TODAY()] || {}, out = [], q = SRS.queue(), due = q.due.length + q.fresh.length;
-  if (!d.code) {
-    const dr = nextDrill();
+  const o = observed(TODAY()), planDrill = todayPlan && DR.find((x) => x.id === todayPlan.drill && !(drillSt(x.id) || {}).solved), planMod = todayPlan && modById(todayPlan.module);
+  if (!o.code) {
+    const dr = planDrill || nextDrill();
     if (dr) { const st = drillSt(dr.id); out.push({ href: `#arena/${dr.id}`, kick: `Arena · ML from scratch · ${pad(DR.indexOf(dr) + 1)} / ${DR.length}`, h: `${esc(dr.title)}, <em>from a blank file.</em>`, meta: ["numpy", `~${DRILL_MIN[dr.lvl]} min`, st && st.attempts ? `last try ${st.best || 0} / ${st.total || "?"} tests` : "not tried yet"], go: "Start coding", later: [dr.title, `arena · ~${DRILL_MIN[dr.lvl]} min`] }); }
   }
-  if (!d.fund) {
-    const m = nextMod();
+  if (!o.fund) {
+    const m = planMod && modStatus(planMod.id) !== "done" ? planMod : nextMod();
     if (m) { const stg = stageOf(m); out.push({ href: `#path/${m.id}`, kick: `Path · stage ${C.stages.indexOf(stg)} · ${areaOf(stg.area).t}`, h: `${esc(m.t)}, <em>rebuilt from a blank file.</em>`, meta: [`~${m.hrs} h`, `${fmtH(modMin(m.id))} h logged`, `${Math.round(modProgress(m) * 100)}% done`], go: modStatus(m.id) === "active" ? "Continue" : "Start", later: [m.t, `path · ${fmtH(modMin(m.id))} / ${m.hrs} h`] }); }
   }
   if (proofDue) out.push({ href: "#proof", kick: `Proof · ${proofDue} due`, h: `${proofDue} question${proofDue === 1 ? "" : "s"} from your own sources, <em>answered from memory.</em>`, meta: ["~3 min each", "pasted answers never count"], go: "Answer", later: [`${proofDue} proof question${proofDue === 1 ? "" : "s"}`, "proof · ~3 min each"] });
   if (due) out.push({ href: "#review", kick: `Review · ${due} cards`, h: `${due} card${due === 1 ? "" : "s"}, <em>recall before you read.</em>`, meta: [`${q.due.length} due`, `${q.fresh.length} new`], go: "Review", later: [`${due} card${due === 1 ? "" : "s"} to review`, "review"] });
-  C.blocks.filter((b) => b.min && !["code", "fund"].includes(b.k) && !d[b.k]).forEach((b) => out.push({ href: "#today", kick: `Today · ${b.min} min`, h: `${esc(b.t)}, <em>${esc(b.d.split(/[.:]/)[0].toLowerCase())}.</em>`, meta: [`${b.min} min`, "tick it in Today"], go: "Open today", later: [b.t, `${b.min} min`] }));
+  if (!o.ship) out.push({ href: "#sources", kick: "Ship · no commit today", h: `One real commit, <em>pushed to a synced repository.</em>`, meta: ["ROUILLE, SENTINEL or the ISBI work", "detected from GitHub"], go: "Repositories", later: ["Ship a commit", "detected from GitHub"] });
   return out;
 }
 let nowSkip = 0;
 VIEWS.now = (v) => {
-  const items = nowItems(), n = dayCount(TODAY()), d = S.days[TODAY()] || {};
+  const items = nowItems(), n = dayCount(TODAY()), d = observed(TODAY());
   if (nowSkip >= items.length) nowSkip = 0;
   const cur = items[nowSkip], rest = items.filter((_, i) => i !== nowSkip).slice(0, 4);
   const main = cur ? `<section>
       <div class="kicker eyebrow">${esc(cur.kick)}</div>
       <h2>${cur.h}</h2>
       <div class="meta m">${cur.meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div>
+      ${todayPlan && todayPlan.why && nowSkip === 0 ? `<p class="m muted" style="margin-top:18px;max-width:62ch">planner · ${esc(todayPlan.why)}</p>` : ""}
       <div class="go"><a class="btn primary big" href="${cur.href}" id="nowGo">${cur.go} <kbd>↵</kbd></a>${items.length > 1 ? `<span class="m muted">or <kbd>J</kbd> skip to the next thing</span>` : ""}</div></section>`
     : `<section><div class="kicker eyebrow">Today · ${n} / ${NB()} blocks</div><h2>${n >= BANK ? "Today is banked, <em>rest is part of the plan.</em>" : "Nothing pressing, <em>pick a block or rest.</em>"}</h2><div class="go"><a class="btn big" href="#today" id="nowGo">Today's blocks <kbd>↵</kbd></a></div></section>`;
   const later = rest.length ? `<aside class="later m"><h4>LATER TODAY</h4>${rest.map((x) => `<a href="${x.href}"><b>${esc(x.later[0])}</b><span>${esc(x.later[1])}</span></a>`).join("")}</aside>` : "<aside></aside>";
@@ -400,47 +411,26 @@ VIEWS.now = (v) => {
   document.addEventListener("keydown", key); cleanup.push(() => document.removeEventListener("keydown", key));
 };
 
-/* ---- today ---- */
-/* A finished focus block becomes a logged session. Outreach and sleep aren't deep work. */
-const BLOCK_AREA = { code: "code", ship: "res", eng: "eng" };
-function logFocus(b) {
-  if (b.k === "fund") { const m = nextMod(); addLog({ min: b.min, mod: m ? m.id : null, area: m ? stageOf(m).area : "math", note: b.t, src: "timer" }); }
-  else if (BLOCK_AREA[b.k]) addLog({ min: b.min, area: BLOCK_AREA[b.k], note: b.t, src: "timer" });
+/* ---- today: what Forge saw happen ---- */
+function blockEvidence(k, d) {
+  const a = S.activity[d] || {};
+  if (k === "code") return a.pass ? `${a.pass} full pass${a.pass === 1 ? "" : "es"} in the Arena` : "no exercise fully passing yet";
+  if (k === "fund") { const mn = Math.round(modFocusMin(d)); return a.checks ? `${a.checks} exit check${a.checks === 1 ? "" : "s"} proven · ${mn} min on modules` : `${mn} / 25 active min on a module`; }
+  if (k === "ship") return commitDays[d] ? `${commitDays[d]} commit${commitDays[d] === 1 ? "" : "s"}` : Sync && Sync.enabled ? "no commit seen yet (repositories sync on open)" : "needs the Forge Worker (GitHub sync)";
+  if (k === "recall") return `${a.recall || 0} answered${a.cleared ? " · nothing left due" : (a.recall ? " · still due" : "")}`;
+  return "";
 }
-let focus = null; try { focus = JSON.parse(sessionStorage.getItem("forge.focus") || "null"); } catch (e) {} // {k, dur, end|null, left}
-const saveFocus = () => { try { sessionStorage.setItem("forge.focus", JSON.stringify(focus)); } catch (e) {} };
 VIEWS.today = (v) => {
-  const t = TODAY(), d = S.days[t] || {}, n = dayCount(t);
-  if (!focus) focus = { k: "code", dur: 45 * 60000, end: null, left: 45 * 60000 };
-  const fb = C.blocks.find((b) => b.k === focus.k) || C.blocks[0];
+  const t = TODAY(), o = observed(t), n = dayCount(t), act = S.activity[t] || { min: {} };
+  const mins = Object.entries(act.min || {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
   v.innerHTML = `
-  <section class="card">
-    <div class="row" style="justify-content:space-between">
-      <div><div class="eyebrow">Today</div><h2 style="margin-top:6px;font-size:22px">${n}/${NB()} blocks · ${n >= BANK ? "day banked" : `${BANK - n} more to bank the day`}</h2></div>
-      <span class="row"><a class="pill" href="#log" style="text-decoration:none">${fmtH(dayMin(t))} h deep work today</a><span class="pill ember">${streak()}-day streak</span></span>
-    </div>
-    <div class="progress" style="margin-top:14px"><i style="width:${(n / NB()) * 100}%"></i></div>
-  </section>
-  <section class="blocks">${C.blocks.map((b) => `<button class="block ${d[b.k] ? "done" : ""}" data-k="${b.k}" aria-pressed="${!!d[b.k]}"><span class="tick">${icon("check")}</span><span class="meta">${b.min ? b.min + " min" : "evening"}</span><h3>${esc(b.t)}</h3><p>${esc(b.d)}</p></button>`).join("")}</section>
-  <section class="card focus">
-    <div><div class="eyebrow">Focus timer</div><div class="clock" id="fclock">${fmtClock(focus.end ? focus.end - Date.now() : focus.left)}</div></div>
-    <div style="display:grid;gap:12px">
-      <div class="seg" role="group" aria-label="Block">${C.blocks.filter((b) => b.min).map((b) => `<button data-fk="${b.k}" aria-pressed="${b.k === focus.k}">${esc(b.t)}</button>`).join("")}</div>
-      <div class="row"><button class="btn primary" id="fgo">${focus.end ? "Pause" : "Start"} ${esc(fb.t.toLowerCase())}</button><button class="btn" id="freset">Reset</button><span class="muted" style="font-size:13px">When the timer ends, the block is ticked and the time is logged${focus.k === "fund" && nextMod() ? ` to ${esc(nextMod().t)}` : ""}.</span></div>
-    </div>
-  </section>`;
-  $$(".block", v).forEach((b) => b.onclick = () => { S.days[t] = Object.assign({}, S.days[t], { [b.dataset.k]: !(S.days[t] || {})[b.dataset.k] }); save(); const was = n; render(); const now5 = dayCount(t); if (was < BANK && now5 >= BANK) toast("Day banked. Streak +1."); });
-  $$("[data-fk]", v).forEach((b) => b.onclick = () => { if (focus.end) return toast("Pause the timer first."); const bl = C.blocks.find((x) => x.k === b.dataset.fk); focus = { k: bl.k, dur: bl.min * 60000, end: null, left: bl.min * 60000 }; saveFocus(); render(); });
-  $("#fgo").onclick = () => { if (focus.end) { focus.left = focus.end - Date.now(); focus.end = null; } else { focus.end = Date.now() + focus.left; } saveFocus(); render(); };
-  $("#freset").onclick = () => { focus = { k: focus.k, dur: focus.dur, end: null, left: focus.dur }; saveFocus(); render(); };
-  if (focus.end) {
-    const iv = setInterval(() => {
-      const left = focus.end - Date.now(); const el = $("#fclock"); if (el) el.textContent = fmtClock(left);
-      if (left <= 0) { clearInterval(iv); S.days[t] = Object.assign({}, S.days[t], { [focus.k]: true }); logFocus(fb); save(); toast(`${fb.t} done.`); focus = { k: focus.k, dur: focus.dur, end: null, left: focus.dur }; saveFocus(); render(); }
-    }, 500);
-    cleanup.push(() => clearInterval(iv));
-  }
+  <section><div class="eyebrow">${n} / ${NB()} blocks · ${n >= BANK ? "day banked" : `${BANK - n} more to bank the day`} · ${streak()}-day streak</div>
+    <p class="muted" style="margin-top:8px;max-width:70ch">Nothing to tick: each block is detected from what you did. Arena runs, time on a module and its notes, proven exit checks, GitHub commits, Proof and Review answers.</p></section>
+  <section class="blocks">${C.blocks.map((b) => `<div class="block ${o[b.k] ? "done" : ""}"><span class="tick"></span><span class="meta">${o[b.k] ? "done" : "open"}</span><h3>${esc(b.t)}</h3><p>${esc(b.d)}</p><span class="meta">${esc(blockEvidence(b.k, t))}</span></div>`).join("")}</section>
+  <section class="card"><div class="card-h"><h3>Active time today</h3><span class="muted">counted while Forge is in front and you type, scroll or click</span></div>
+    ${mins.length ? `<div class="next-list">${mins.map(([k, m]) => `<div class="next-item"><span class="dot"></span><span>${esc(timeLabel(k))}</span><span class="pill num">${Math.round(m)} min</span></div>`).join("")}</div>` : `<div class="empty">No active time yet today.</div>`}</section>`;
 };
+const timeLabel = (k) => { const [kind, id] = k.split(":"); if (kind === "mod") return `Path · ${(modById(id) || { t: id }).t}`; if (kind === "drill") return `Arena · ${(DR.find((d) => d.id === id) || { title: id }).title}`; if (kind === "pat") return `Arena · ${(C.problems.find((p) => p.id === id) || { pattern: id }).pattern}`; return { proof: "Proof questions", review: "Review cards", notes: "Notes", diag: "Diagnostic" }[kind] || k; };
 
 /* ---- runner (Pyodide in a worker) ---- */
 let TESTS = null;
@@ -558,7 +548,7 @@ VIEWS.arena = (v) => {
     <div class="brief">
       ${mock ? `<div class="mockbar"><span class="clock" id="mclock">00:00</span><span>timed mock · ${mock.ids.length} problems · 55 min</span><span style="flex:1"></span><button class="btn primary small" id="mfinish">Finish & score</button><button class="x" id="mabort">abandon</button></div>` : ""}
       <button class="kick" id="kick" type="button" aria-expanded="${pickOpen}">${it.col === "ml" ? "ML from scratch" : mock ? "Mock" : "Interview patterns"} · ${pad(idx + 1)} / ${pad(list.length)} <span>▾</span></button>
-      <div class="langs"><span class="on">python</span><span class="soon">c++ · soon</span><span class="soon">cuda · soon</span></div>
+      <div class="langs"><span class="on">python</span><span class="soon">cuda · soon</span></div>
       <h2>${esc(title)}</h2>
       <div class="desc">${desc}</div>
       <div class="tests" id="atests">${testsHtml(it)}</div>
@@ -638,6 +628,7 @@ async function runArena(it) {
   const pr = progOf(it); pr.attempts++; pr.last = TODAY();
   const pass = r.results ? r.results.filter((x) => x.ok).length : 0, tot = r.results ? r.results.length : (it.col === "patterns" && TESTS[it.p.id] ? TESTS[it.p.id].cases.length : 0), all = !!r.results && pass === tot;
   if (it.col === "ml") { pr.best = Math.max(pr.best || 0, pass); pr.total = r.results ? tot : pr.total; }
+  if (all) { const before = dayCount(TODAY()); ACT().pass++; if (before < BANK && dayCount(TODAY()) >= BANK) toast("Day banked."); }
   if (all && !pr.solved) { pr.solvedAt = TODAY(); toast(it.col === "ml" ? `${it.d.title}: all tests pass.` : "Solved."); }
   if (all) pr.solved = true;
   if (S.mock && it.col === "patterns") { S.mock.last[id] = { pass, total: tot }; if (all && Date.now() - S.mock.start <= 55 * 60000) pr.timed = true; }
@@ -682,34 +673,35 @@ VIEWS.diagnostic = (v) => {
   const part = C.theory.find((t) => t.id === diagPart);
   const run = S.theoryRun && S.theoryRun.part === part.id ? S.theoryRun : null;
   if (!run) {
-    body.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start"><div style="max-width:62ch"><div class="eyebrow">${part.n} · ${part.min} minutes</div><h2 style="font-size:22px;margin-top:6px">${esc(part.h)}</h2><p class="muted" style="margin-top:8px">${part.qs.length} questions. Answer in English, in your own words, with formulas where useful. After you submit, compare with the key points and tick only what you really covered.</p></div><button class="btn primary" id="tstart">${icon("play")} Start ${part.min}:00</button></div>`;
+    body.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start"><div style="max-width:62ch"><div class="eyebrow">${part.n} · ${part.min} minutes</div><h2 style="font-size:22px;margin-top:6px">${esc(part.h)}</h2><p class="muted" style="margin-top:8px">${part.qs.length} questions. Answer in English, in your own words, with formulas where useful. When you submit, the model grades each answer against the key points.</p></div><button class="btn primary" id="tstart">${icon("play")} Start ${part.min}:00</button></div>`;
     $("#tstart").onclick = () => { S.theoryRun = { part: part.id, start: Date.now(), answers: {}, ticks: {}, done: false }; save(); render(); };
     return;
   }
   body.innerHTML = `
     <div class="row" style="justify-content:space-between"><div><div class="eyebrow">${part.n} · ${run.done ? "self-grading" : "running"}</div><h2 style="font-size:22px;margin-top:6px">${esc(part.h)}</h2></div>
       <div class="row">${run.done ? `<span class="pill">${run.elapsedMin} min used</span>` : `<span class="clock num" id="tclock" style="font:700 26px var(--display)">00:00</span>`}
-      ${run.done ? `<button class="btn" id="tcopy">Copy for Claude</button><button class="btn primary" id="tsave">Save score</button>` : `<button class="btn primary" id="tsubmit">Submit</button>`}<button class="btn small" id="tabort">${run.done ? "Discard" : "Abandon"}</button></div></div>
+      ${run.done ? (run.grades ? `<button class="btn primary" id="tsave">Save ${run.grades.score}/100</button>` : `<button class="btn primary" id="tgrade">Grade</button>`) : `<button class="btn primary" id="tsubmit">Submit</button>`}<button class="btn small" id="tabort">${run.done ? "Discard" : "Abandon"}</button></div></div>
     <div style="margin-top:12px">${part.qs.map((q, i) => `<div class="q"><div class="row" style="justify-content:space-between"><b>Question ${i + 1}</b></div><div class="qt math">${q.q}</div>
       <textarea class="input" data-q="${i}" ${run.done ? "readonly" : ""} placeholder="Your answer…">${esc(run.answers[i] || "")}</textarea>
-      ${run.done ? `<div class="keys"><span class="eyebrow">Key points · tick what your answer really covers</span>${q.keys.map((k, j) => `<label><input type="checkbox" data-tk="${i}-${j}" ${run.ticks[i + "-" + j] ? "checked" : ""}><span class="math">${k}</span></label>`).join("")}</div>` : ""}</div>`).join("")}</div>`;
+      ${run.grades ? `<div class="row" style="gap:12px;align-items:baseline"><span class="score sm ${scoreCls(run.grades.scores[i].score)} num">${run.grades.scores[i].score}</span><span class="muted" style="font-size:14px">${esc(run.grades.scores[i].fix)}</span></div><div class="keys"><span class="eyebrow">Key points</span>${q.keys.map((k) => `<div class="math muted" style="font-size:14px">· ${k}</div>`).join("")}</div>` : ""}</div>`).join("")}</div>`;
   $$("textarea[data-q]", body).forEach((t) => t.oninput = () => { run.answers[t.dataset.q] = t.value; save(); });
-  $$("[data-tk]", body).forEach((c) => c.onchange = () => { run.ticks[c.dataset.tk] = c.checked; save(); });
   $("#tabort").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Click again to confirm"; return; } S.theoryRun = null; save(); render(); };
   if (!run.done) {
     const tick = () => { const el = $("#tclock"); if (!el) return; const ms = Date.now() - run.start; el.textContent = fmtClock(ms); el.style.color = ms > part.min * 60000 ? "var(--bad)" : ""; };
     tick(); const iv = setInterval(tick, 1000); cleanup.push(() => clearInterval(iv));
     $("#tsubmit").onclick = () => { run.done = true; run.elapsedMin = Math.round((Date.now() - run.start) / 60000); save(); render(); };
   } else {
-    $("#tsave").onclick = () => {
-      const total = part.qs.reduce((a, q) => a + q.keys.length, 0); const got = Object.values(run.ticks).filter(Boolean).length;
-      const score = Math.round((got / total) * 100);
-      S.theory.push({ part: part.id, date: TODAY(), score, elapsedMin: run.elapsedMin, answers: run.answers });
-      S.theoryRun = null; save(); toast(`${part.n} scored ${score}/100.`); render();
+    const g = $("#tgrade");
+    if (g) g.onclick = () => {
+      if (!(Sync && Sync.enabled)) return toast("Grading runs on the Forge Worker.");
+      g.disabled = true; g.textContent = "Grading…";
+      api("POST", "/api/diagnostic/grade", { part: part.id, questions: part.qs.map((q, i) => ({ q: q.q, keys: q.keys, answer: run.answers[i] || "" })) })
+        .then((r) => { run.grades = r; save(); render(); }, (e) => { fail(e); g.disabled = false; g.textContent = "Grade"; });
     };
-    $("#tcopy").onclick = async () => {
-      const txt = `Grade my Forge diagnostic — ${part.n}: ${part.h} (${run.elapsedMin} min of ${part.min}).\n\n` + part.qs.map((q, i) => `Q${i + 1}. ${q.q.replace(/<[^>]+>/g, "")}\nMy answer: ${run.answers[i] || "(empty)"}`).join("\n\n");
-      try { await navigator.clipboard.writeText(txt); toast("Copied. Paste it into your chat with Claude."); } catch (e) { toast("Copy failed. Select the answers manually."); }
+    const sv = $("#tsave");
+    if (sv) sv.onclick = () => {
+      S.theory.push({ part: part.id, date: TODAY(), score: run.grades.score, elapsedMin: run.elapsedMin, answers: run.answers, graded: "ai" });
+      S.theoryRun = null; save(); toast(`${part.n} scored ${run.grades.score}/100.`); render();
     };
   }
 };
@@ -722,30 +714,27 @@ function historyTable() {
 }
 
 /* ---- skills: the shape, from evidence ---- */
-let masteryCache = null;
+const HOW = { coding: "measured by interview patterns and timed mocks", ml: "measured by Arena drills, Proof and ML exit checks", math: "measured by Proof, math exit checks and the Part 3 diagnostic", sys: "measured by systems drills, exit checks and the Part 4 diagnostic", ship: "measured by days with commits and module proof links" };
 VIEWS.skills = (v) => {
   const draw = () => {
-    const ev = ForgeShape.evidence({ S, C, drills: DR, mastery: masteryCache, today: TODAY() });
-    const rows = ForgeShape.compute(C.tracks, S.skills, ev);
+    const ev = ForgeShape.evidence({ S, C, drills: DR, mastery: masteryCache, commits: commitDays, today: TODAY(), isDone: (id) => modStatus(id) === "done" });
+    const rows = ForgeShape.compute(C.tracks, ev);
     const f1 = (x) => x.toFixed(1);
     v.innerHTML = `
     <section class="skills">
       <div>${ForgeShape.svg(rows)}
-        <div class="shape-legend"><span><i></i>estimate</span><span><i class="est-d"></i>toward an unmeasured track</span><span><i class="dot"></i>no evidence yet</span><span><i class="self"></i>self-rating</span><span><i class="tgt"></i>March target</span></div></div>
+        <div class="shape-legend"><span><i></i>measured</span><span><i class="est-d"></i>toward a track not measured yet</span><span><i class="dot"></i>not measured</span><span><i class="tgt"></i>March target</span></div></div>
       <div class="srows">${rows.map((r) => `<div class="srow">
         <h4>${esc(r.t)}</h4>
-        <div class="vals">${r.measured == null ? `<b>${f1(r.est)}</b> from self-rating` : `<b>${f1(r.est)}</b> ± ${f1(r.unc)}`} · self ${r.self} → ${r.target}</div>
-        <div class="ev">${r.measured == null ? "no evidence yet: counted as self-rating minus one level" : `${r.n} piece${r.n === 1 ? "" : "s"} · ${esc(r.top.join(" · "))}`}${r.gap != null && r.gap >= 1.5 ? ` · <span class="gapflag">self-rated ${f1(r.gap)} above the evidence</span>` : ""}</div></div>`).join("")}</div>
+        <div class="vals">${r.est == null ? "not measured" : `<b>${f1(r.est)}</b> ± ${f1(r.unc)}`} → ${r.target}</div>
+        <div class="ev">${r.est == null ? esc(HOW[r.k] || "no evidence yet") : `${r.n} piece${r.n === 1 ? "" : "s"} · ${esc(r.top.join(" · "))}`}</div></div>`).join("")}</div>
     </section>
-    <p class="m muted" style="max-width:90ch">Estimate = confidence × measured + (1 − confidence) × (self-rating − 1). Confidence grows with evidence (1 − e<sup>−W/4</sup>); evidence fades over ~90 days. Measured comes from Proof reviews (pasted answers never count), Arena drills (fewer points with hints), interview patterns, mocks, diagnostics, finished modules, English minutes and the weekly scorecard.</p>
-    <section class="card"><div class="card-h"><h3>Rate yourself</h3><span class="muted">${C.levels.map((l, i) => `${i} ${l}`).join(" · ")}</span></div>
-      <div class="tracks">${C.tracks.map((t) => { const lv = S.skills[t.k] || 0; return `<div class="track"><div style="min-width:0"><h4>${esc(t.t)}</h4><p>Proof: ${esc(t.proof)}</p></div><div class="steps">${[1, 2, 3, 4, 5].map((i) => `<button data-t="${t.k}" data-l="${i}" class="${i <= lv ? "on" : ""} ${i === t.target ? "tgt" : ""}" title="${esc(C.levels[i])}" aria-label="${esc(t.t)}: ${esc(C.levels[i])}">${i}</button>`).join("")}</div></div>`; }).join("")}</div></section>
+    <p class="m muted" style="max-width:90ch">Level = weighted mean of the evidence, 0 to 5; ± shrinks as evidence accumulates (confidence 1 − e<sup>−W/4</sup>), and evidence fades over ~90 days. Nothing here is self-reported: Proof reviews (pasted answers never count), proven exit checks, Arena drills (fewer points with hints), interview patterns, mocks, AI-graded diagnostics, finished modules and days with commits.</p>
     <section class="card"><div class="card-h"><h3>Coding patterns</h3><span class="muted">tried · solved · solved in a timed mock</span></div>
       <div class="patgrid">${C.problems.map((p) => { const l = patLevel(p.id); return `<a class="pat" href="#arena/${p.id}"><span>${esc(p.pattern)}</span><span class="pips">${[1, 2, 3].map((i) => `<i class="${i <= l ? "on" : ""}"></i>`).join("")}</span></a>`; }).join("")}</div></section>`;
-    $$("[data-t]", v).forEach((b) => b.onclick = () => { const k = b.dataset.t, l = +b.dataset.l; S.skills[k] = S.skills[k] === l ? l - 1 : l; save(); draw(); });
   };
   draw();
-  if (Sync && Sync.enabled) api("GET", "/api/proof/mastery").then((m) => { masteryCache = m; if (route() === "skills" && v.isConnected) draw(); }, () => {});
+  refreshMastery().then((m) => { if (m && route() === "skills" && v.isConnected) draw(); });
 };
 
 /* ---- scorecard ---- */
@@ -835,56 +824,47 @@ VIEWS.path = (v) => {
   </section>`; }).join("")}`;
 };
 function moduleView(v, m) {
-  const p = S.path[m.id] || { res: {}, checks: {} }, st = modStatus(m.id), stg = stageOf(m), si = C.stages.indexOf(stg);
+  const p = S.path[m.id] || {}, st = modStatus(m.id), stg = stageOf(m), si = C.stages.indexOf(stg);
   const idx = C.modules.indexOf(m), prev = C.modules[idx - 1], next = C.modules[idx + 1];
-  const mine = S.log.filter((e) => e.mod === m.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6), notes = S.notes.filter((n) => n.mod === m.id);
-  const allChecks = m.checks.every((_, i) => (p.checks || {})[i]);
+  const notes = S.notes.filter((n) => n.mod === m.id), proven = modProvenN(m);
   $("#pageTitle").textContent = "Path"; document.title = `${m.t} · Forge`;
+  const ck = (i) => checkProofs[ckey(m, i)];
   v.innerHTML = `
   <nav class="crumbs"><a href="#path">Path</a><span>/</span><span>Stage ${si} · ${esc(stg.t)}</span></nav>
-  <section class="card">
-    <div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div style="max-width:68ch"><div class="eyebrow">${esc(areaOf(stg.area).t)} · ~${m.hrs} h · ${fmtH(modMin(m.id))} h logged</div><h2 style="margin-top:6px;font-size:24px">${esc(m.t)}</h2><p class="muted" style="margin-top:8px">${esc(m.why)}</p></div>
-      <div class="seg" role="group" aria-label="Status">${[["todo", "To do"], ["active", "Active"], ["done", "Done"]].map(([k, t]) => `<button data-st="${k}" aria-pressed="${st === k}">${t}</button>`).join("")}</div>
-    </div>
-    <div class="progress" style="margin-top:14px"><i style="width:${modProgress(m) * 100}%"></i></div>
+  <section>
+    <div class="eyebrow">${esc(areaOf(stg.area).t)} · ~${m.hrs} h · ${fmtH(modMin(m.id))} h measured · ${st}</div>
+    <h2 style="font-size:44px;margin-top:10px">${esc(m.t)}</h2><p class="muted" style="margin-top:10px;max-width:68ch">${esc(m.why)}</p>
+    <div class="progress" style="margin-top:18px;max-width:680px"><i style="width:${modProgress(m) * 100}%"></i></div>
+    <p class="m muted" style="margin-top:8px">${proven} / ${m.checks.length} exit checks proven · proof link ${p.proof ? "set" : "missing"} · done when both are complete</p>
   </section>
   <section class="grid g-main">
-    <div style="display:grid;gap:16px;min-width:0">
-      <div class="card"><div class="card-h"><h3>1 · Learn</h3><span class="muted" style="font-size:13px">Tick when finished, not when opened</span></div>
-        <div class="reslist">${m.res.map(([k, t, u], i) => `<label class="resitem"><input type="checkbox" data-res="${i}" ${(p.res || {})[i] ? "checked" : ""}><span class="pill">${KIND[k] || k}</span><a href="${esc(u)}"${ext(u)}>${esc(t)}</a></label>`).join("")}</div></div>
-      <div class="card"><div class="card-h"><h3>2 · Build from scratch</h3></div>
+    <div style="display:grid;gap:20px;min-width:0">
+      <div class="card"><div class="card-h"><h3>Exit checks</h3><span class="muted">proven by a Proof answer of 70 or more, written from memory</span></div>
+        <div class="tests" style="font-size:13px">${m.checks.map((c, i) => { const x = ck(i); return `<div class="${x ? "y" : ""}" style="grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:baseline"><span class="${x ? (x.proven ? "ok" : "ko") : ""}">${x ? (x.proven ? "✓" : "✗") : "·"}</span><span class="math" style="font-family:var(--body);font-size:14px">${c}</span>${x && x.proven ? `<span class="faint">${x.score}</span>` : `<button class="btn small" data-test="${i}" type="button">${x ? "Retry" : "Test me"}</button>`}</div>`; }).join("")}</div>
+        <p class="m faint" style="margin-top:12px">The planner also picks one or two of these for you each night.</p></div>
+      <div class="card"><div class="card-h"><h3>Build from scratch</h3></div>
         <p>${esc(m.build)}</p>
-        <label class="field" style="margin-top:14px"><span>Proof: repo, commit, notebook or post</span><div class="row" style="flex-wrap:nowrap"><input class="input" id="proof" placeholder="https://github.com/…" value="${esc(p.proof || "")}">${p.proof && /^https?:/.test(p.proof) ? `<a class="btn" href="${esc(p.proof)}" target="_blank" rel="noopener noreferrer">${icon("link")} Open</a>` : ""}</div></label></div>
-      <div class="card"><div class="card-h"><h3>3 · Exit checks</h3><span class="muted" style="font-size:13px">Say each one aloud, without notes</span></div>
-        <div class="keys">${m.checks.map((c, i) => `<label><input type="checkbox" data-ck="${i}" ${(p.checks || {})[i] ? "checked" : ""}><span class="math">${c}</span></label>`).join("")}</div>
-        <div class="row" style="margin-top:12px"><button class="btn" id="quiz">Copy quiz prompt for Claude</button><span class="muted" style="font-size:13px">An examiner that asks follow-ups, without giving answers.</span></div></div>
+        <label class="field" style="margin-top:14px"><span>Proof: repository, commit, notebook or post</span><div class="row" style="flex-wrap:nowrap"><input class="input" id="proof" placeholder="https://github.com/…" value="${esc(p.proof || "")}">${p.proof && /^https?:/.test(p.proof) ? `<a class="btn" href="${esc(p.proof)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}</div></label></div>
+      <div class="card"><div class="card-h"><h3>Learn</h3><span class="muted">a reading list: what counts is the checks above</span></div>
+        <div class="reslist">${m.res.map(([k, t, u]) => `<div class="resitem" style="grid-template-columns:64px minmax(0,1fr)"><span class="pill">${KIND[k] || k}</span><a href="${esc(u)}"${ext(u)}>${esc(t)}</a></div>`).join("")}</div></div>
     </div>
-    <div style="display:grid;gap:16px;min-width:0">
-      <div class="card"><div class="card-h"><h3>Log time</h3><span class="pill">${fmtH(modMin(m.id))} h</span></div>
-        <div class="row">${[25, 50, 90].map((n) => `<button class="btn small" data-add="${n}">+${n} min</button>`).join("")}</div>
-        <form id="mlog" class="row" style="margin-top:10px;flex-wrap:nowrap"><input class="input" id="mmin" type="number" min="1" max="720" placeholder="min" style="width:80px"><input class="input" id="mnote" placeholder="What you did (optional)"><button class="btn" type="submit">Log</button></form>
-        ${mine.length ? `<div class="mini-log">${mine.map((e) => `<div><span class="num muted">${e.date.slice(5)}</span><span>${esc(e.note || "Session")}</span><span class="num">${e.min} min</span></div>`).join("")}</div>` : ""}</div>
-      <div class="card"><div class="card-h"><h3>Notes</h3><button class="btn small" id="mnew">${icon("plus")} New note</button></div>
-        ${notes.length ? `<div class="next-list">${notes.map((n) => `<a class="next-item" href="#library/${n.id}"><span class="dot"></span><span>${esc(n.title || "Untitled")}</span><span class="pill">${noteCards(n).length} cards</span></a>`).join("")}</div>` : `<p class="muted" style="font-size:14px">Write what you rebuilt, the bugs you hit and 5 Q:/A: cards. They go straight into Review.</p>`}</div>
+    <div style="display:grid;gap:20px;min-width:0">
+      <div class="card"><div class="card-h"><h3>Time</h3><span class="pill num">${fmtH(modMin(m.id))} / ${m.hrs} h</span></div>
+        <p class="muted" style="font-size:14px">Measured while this page or the module's notes are in front and you're active. Video or paper time away from Forge can be added in the Log.</p></div>
+      <div class="card"><div class="card-h"><h3>Notes</h3><button class="btn small" id="mnew">New note</button></div>
+        ${notes.length ? `<div class="next-list">${notes.map((n) => `<a class="next-item" href="#library/${n.id}"><span class="dot"></span><span>${esc(n.title || "Untitled")}</span><span class="pill">${noteCards(n).length} cards</span></a>`).join("")}</div>` : `<p class="muted" style="font-size:14px">Write what you rebuilt, the bugs you hit and a few Q:/A: cards. Time spent in them counts for this module.</p>`}</div>
       <div class="row" style="justify-content:space-between">${prev ? `<a class="btn small" href="#path/${prev.id}">← ${esc(prev.t)}</a>` : "<span></span>"}${next ? `<a class="btn small" href="#path/${next.id}">${esc(next.t)} →</a>` : ""}</div>
     </div>
   </section>`;
-  const set = (fn) => { const q = PS(m.id); fn(q); save(); };
-  $$("[data-st]", v).forEach((b) => b.onclick = () => {
-    const k = b.dataset.st;
-    if (k === "done" && st !== "done" && (!allChecks || !p.proof) && !b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Proof or checks missing. Click again"; return; }
-    set((q) => { q.status = k; if (k !== "todo") q.started = q.started || TODAY(); q.finished = k === "done" ? TODAY() : null; });
-    if (k === "done") toast(`${m.t}: done. On to the next one.`); render();
+  $("#proof").onchange = (e) => { const q = PS(m.id); q.proof = e.target.value.trim(); save(); updateCtx(); render(); };
+  $$("[data-test]", v).forEach((b) => b.onclick = () => {
+    if (!(Sync && Sync.enabled)) return toast("Exit checks are proven through Proof, on the Forge Worker.");
+    const i = +b.dataset.test; b.disabled = true; b.textContent = "Writing a question…";
+    api("POST", "/api/proof/check", { key: ckey(m, i), title: m.t, check: m.checks[i], track: TRACK_OF_AREA[stg.area] }).then(() => { location.hash = "#proof"; }, (e) => { fail(e); b.disabled = false; b.textContent = "Test me"; });
   });
-  $$("[data-res]", v).forEach((c) => c.onchange = () => { set((q) => { q.res = q.res || {}; q.res[c.dataset.res] = c.checked; }); render(); });
-  $$("[data-ck]", v).forEach((c) => c.onchange = () => { set((q) => { q.checks = q.checks || {}; q.checks[c.dataset.ck] = c.checked; }); render(); });
-  $("#proof").onchange = (e) => { set((q) => { q.proof = e.target.value.trim(); }); render(); };
-  $$("[data-add]", v).forEach((b) => b.onclick = () => { addLog({ min: +b.dataset.add, mod: m.id }); toast(`${b.dataset.add} min logged on ${m.t}.`); render(); });
-  $("#mlog").onsubmit = (e) => { e.preventDefault(); if (addLog({ min: $("#mmin").value, mod: m.id, note: $("#mnote").value })) { toast("Session logged."); render(); } else toast("Enter the minutes first."); };
   $("#mnew").onclick = () => { const n = newNote({ title: `${m.t} — notes`, mod: m.id, tags: [stg.area], body: `## What I rebuilt\n\n\n## Bugs I hit\n\n\n## Cards\nQ: \nA: \n` }); location.hash = `#library/${n.id}`; };
-  $("#quiz").onclick = () => copyText(`You are a demanding ML research examiner. Quiz me on "${m.t}". Ask one question at a time, wait for my answer, then grade it strictly, point out what's missing, and ask a harder follow-up. Do not give the answer unless I've tried twice. Cover these checks:\n${m.checks.map((c) => "- " + c.replace(/\$/g, "")).join("\n")}\nAlso ask me to write code for: ${m.build}`, "Prompt copied. Paste it into Claude.");
 }
+const TRACK_OF_AREA = { math: "math", dl: "ml", llm: "ml", sys: "sys", res: "ship", code: "coding", eng: "ml" };
 
 /* ---- library ---- */
 let libQ = "", libTag = "";
@@ -985,7 +965,7 @@ VIEWS.review = (v) => {
     <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Front</th><th>Source</th><th>Due</th><th></th></tr></thead><tbody>${q.cards.map((c) => { const s = S.srs[c.id]; return `<tr><td class="md-inline">${inline(c.f)}</td><td class="muted" style="font-size:13px">${esc(c.src)}</td><td class="num muted">${s ? (s.off ? "suspended" : s.due) : "new"}</td><td><button class="btn small" data-off="${esc(c.id)}">${s && s.off ? "Resume" : "Suspend"}</button></td></tr>`; }).join("")}</tbody></table></div>
   </details>`;
   const show = () => { rv.shown = true; render(); };
-  const grade = (g) => { const id = rv.ids.shift(); SRS.grade(id, g); rv.done++; if (g === 1) rv.ids.push(id); rv.shown = false; if (!rv.ids.length) toast(`Session done: ${rv.done} cards.`); render(); };
+  const grade = (g) => { const id = rv.ids.shift(); SRS.grade(id, g); rv.done++; if (g === 1) rv.ids.push(id); rv.shown = false; if (!rv.ids.length) toast(`Session done: ${rv.done} cards.`); markCleared(); render(); };
   const sb = $("#show"); if (sb) sb.onclick = show;
   $$("[data-g]", v).forEach((b) => b.onclick = () => grade(+b.dataset.g));
   $$("[data-off]", v).forEach((b) => b.onclick = () => { const id = b.dataset.off; const s = S.srs[id] || (S.srs[id] = { ease: 2.5, ivl: 0, reps: 0, lapses: 0, intro: TODAY(), due: TODAY() }); s.off = !s.off; save(); rv = null; render(); });
@@ -1005,7 +985,7 @@ VIEWS.log = (v) => {
   const rows = S.log.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60);
   const modTime = C.modules.map((m) => [m, modMin(m.id)]).filter(([, x]) => x).sort((a, b) => b[1] - a[1]).slice(0, 8);
   v.innerHTML = `
-  <section class="card"><div class="card-h"><h3>Log a session</h3><span class="muted" style="font-size:13px">Focus timers and module buttons log for you. Only deep work counts.</span></div>
+  <details class="card"><summary><b>Add off-screen work</b> <span class="muted">· time in Forge is measured automatically; add only videos, papers or code away from it</span></summary><div style="margin-top:14px">
     <form id="lf" class="grid lform">
       <label class="field"><span>Date</span><input class="input" type="date" id="l_date" value="${TODAY()}" max="${TODAY()}"></label>
       <label class="field"><span>Minutes</span><input class="input" type="number" min="1" max="720" id="l_min" placeholder="50" required></label>
@@ -1013,19 +993,19 @@ VIEWS.log = (v) => {
       <label class="field"><span>Area</span><select class="input" id="l_area">${C.areas.map((a) => `<option value="${a.k}">${esc(a.t)}</option>`).join("")}</select></label>
       <label class="field" style="grid-column:span 2"><span>What you did</span><input class="input" id="l_note" placeholder="Backprop through BatchNorm by hand, matched autograd"></label>
       <button class="btn primary" type="submit">Log</button>
-    </form></section>
+    </form></div></details>
   <section class="grid g-4">
     <div class="card kpi ember"><span class="eyebrow">This week</span><b>${fmtH(thisW)}<span class="muted" style="font-size:15px"> / ${C.weeklyHours} h</span></b><div class="progress"><i style="width:${Math.min(100, (thisW / 60 / C.weeklyHours) * 100)}%"></i></div></div>
     <div class="card kpi"><span class="eyebrow">4-week average</span><b>${fmtH(four / 4)}<span class="muted" style="font-size:15px"> h</span></b><span class="sub">per week, previous 4 weeks</span></div>
     <div class="card kpi"><span class="eyebrow">All time</span><b>${fmtH(total)}<span class="muted" style="font-size:15px"> h</span></b><span class="sub">${S.log.length} sessions</span></div>
     <div class="card kpi"><span class="eyebrow">Today</span><b>${fmtH(dayMin(TODAY()))}<span class="muted" style="font-size:15px"> h</span></b><span class="sub">${(() => { const k = S.log.filter((e) => e.date === TODAY()).length; return `${k} session${k === 1 ? "" : "s"}`; })()}</span></div>
   </section>
-  <section class="card"><div class="card-h"><h3>Deep work per week, by area</h3><span class="muted" style="font-size:13px">Last 12 weeks · hover a bar</span></div>${S.log.length ? weekStack(12) : `<div class="empty">Log a session or finish a focus timer: your weeks build up here.</div>`}</section>
+  <section class="card"><div class="card-h"><h3>Deep work per week, by area</h3><span class="muted" style="font-size:13px">Last 12 weeks · hover a bar</span></div>${S.log.length ? weekStack(12) : `<div class="empty">Active time in Forge builds up here, week by week.</div>`}</section>
   <section class="grid g-2">
     <div class="card"><div class="card-h"><h3>Where the hours went</h3></div>${S.log.length ? areaBars(S.log) : `<div class="empty">No sessions yet.</div>`}</div>
     <div class="card"><div class="card-h"><h3>Time per module</h3></div>${modTime.length ? `<div class="next-list">${modTime.map(([m, x]) => `<a class="next-item" href="#path/${m.id}"><span class="dot" style="background:var(--c${areaIdx(stageOf(m).area)})"></span><span>${esc(m.t)}</span><span class="pill num">${fmtH(x)} / ${m.hrs} h</span></a>`).join("")}</div>` : `<div class="empty">Log time against a module to see it here.</div>`}</div>
   </section>
-  <section class="card"><div class="card-h"><h3>Sessions</h3><span class="muted" style="font-size:13px">Latest 60</span></div><div class="table-wrap">${rows.length ? `<table><thead><tr><th>Date</th><th>Min</th><th>Area</th><th>Module</th><th>Note</th><th></th></tr></thead><tbody>${rows.map((e) => `<tr><td class="num">${e.date}</td><td class="num">${e.min}</td><td><span class="row" style="gap:6px;flex-wrap:nowrap"><i class="sw" style="background:var(--c${areaIdx(e.area)})"></i>${esc(areaOf(e.area).t)}</span></td><td>${e.mod && modById(e.mod) ? `<a href="#path/${e.mod}">${esc(modById(e.mod).t)}</a>` : '<span class="faint">—</span>'}</td><td class="muted" style="font-size:13px">${esc(e.note)}${e.src === "timer" ? ' <span class="pill">timer</span>' : ""}</td><td><button class="x" data-ldel="${e.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No sessions yet.</div>`}</div></section>`;
+  <section class="card"><div class="card-h"><h3>Sessions</h3><span class="muted" style="font-size:13px">Latest 60</span></div><div class="table-wrap">${rows.length ? `<table><thead><tr><th>Date</th><th>Min</th><th>Area</th><th>Module</th><th>Note</th><th></th></tr></thead><tbody>${rows.map((e) => `<tr><td class="num">${e.date}</td><td class="num">${Math.round(e.min)}</td><td><span class="row" style="gap:6px;flex-wrap:nowrap"><i class="sw" style="background:var(--c${areaIdx(e.area)})"></i>${esc(areaOf(e.area).t)}</span></td><td>${e.mod && modById(e.mod) ? `<a href="#path/${e.mod}">${esc(modById(e.mod).t)}</a>` : '<span class="faint">—</span>'}</td><td class="muted" style="font-size:13px">${esc(e.note)}${e.src === "auto" ? ' <span class="pill">measured</span>' : e.src === "timer" ? ' <span class="pill">timer</span>' : ""}</td><td><button class="x" data-ldel="${e.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No sessions yet.</div>`}</div></section>`;
   const syncArea = () => { const m = modById($("#l_mod").value); if (m) $("#l_area").value = stageOf(m).area; };
   $("#l_mod").onchange = syncArea; syncArea();
   $("#lf").onsubmit = (e) => { e.preventDefault(); if (addLog({ date: $("#l_date").value || TODAY(), min: $("#l_min").value, mod: $("#l_mod").value, area: $("#l_area").value, note: $("#l_note").value })) { toast("Session logged."); render(); } else toast("Minutes must be a positive number."); };
@@ -1192,7 +1172,11 @@ VIEWS.context = (v) => {
 
 /* ---------------- proof loop: daily questions you can't fake ---------------- */
 let proofDue = null; /* nav badge */
-const refreshProof = () => { if (!(Sync && Sync.enabled)) return; api("GET", "/api/proof").then((s) => { proofDue = s.due.length; nav(); }, () => {}); };
+const refreshProof = () => { if (!(Sync && Sync.enabled)) return; api("GET", "/api/proof").then((s) => { proofDue = s.due.length; markCleared(); nav(); if (route() === "now") render(); }, () => {}); };
+/* Recall is cleared when something was answered today and nothing is due in Review or Proof. */
+function markCleared() { const a = ACT(), q = SRS.queue(); if (a.recall > 0 && !a.cleared && !q.due.length && !q.fresh.length && !proofDue) { a.cleared = true; save(); nav(); } }
+let masteryCache = null;
+const refreshMastery = () => { if (!(Sync && Sync.enabled)) return Promise.resolve(null); return api("GET", "/api/proof/mastery").then((m) => { masteryCache = m; checkProofs = m.checks || {}; return m; }, () => null); };
 let pf = null; /* answer in progress: { qid, text, started, typed, last, pasted } */
 let pr = null; /* last graded result, shown until "Next" */
 const scoreCls = (s) => s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
@@ -1202,7 +1186,7 @@ VIEWS.proof = (v) => {
   v.innerHTML = `<div class="faint">Loading…</div>`;
   api("GET", "/api/proof").then((s) => {
     if (route() !== "proof") return;
-    proofDue = s.due.length; nav();
+    proofDue = s.due.length; markCleared(); nav();
     const q = s.due[0];
     const kpis = `<section class="grid g-4">
       <div class="card kpi"><span class="eyebrow">Due today</span><b>${s.due.length}</b><span class="sub">${s.done.length} answered today</span></div>
@@ -1251,7 +1235,7 @@ VIEWS.proof = (v) => {
         if (!ta.value.trim()) return toast("Write an answer first.");
         const b = $("#psend"); b.disabled = true; b.textContent = "Grading…"; ta.readOnly = true;
         api("POST", `/api/proof/${q.id}/answer`, { answer: ta.value, typed_ms: pf.typed, elapsed_ms: Date.now() - pf.started, pasted: pf.pasted })
-          .then((r) => { pr = { ...r, prompt: q.prompt }; pf = null; render(); }, (e) => { fail(e); b.disabled = false; b.textContent = "Grade"; ta.readOnly = false; if (e.message && /retired/.test(e.message)) { pf = null; render(); } });
+          .then((r) => { pr = { ...r, prompt: q.prompt }; pf = null; ACT().recall++; if (r.check_key && r.score >= 70 && !r.pasted) { ACT().checks++; checkProofs[r.check_key] = { proven: true, score: r.score }; } save(); refreshMastery(); render(); }, (e) => { fail(e); b.disabled = false; b.textContent = "Grade"; ta.readOnly = false; if (e.message && /retired/.test(e.message)) { pf = null; render(); } });
       };
       $("#psend").onclick = send;
       ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } };
@@ -1265,17 +1249,11 @@ VIEWS.proof = (v) => {
 
 const TRACK_NAME = Object.fromEntries(C.tracks.map((t) => [t.k, t.t]));
 /** Mastery from reviews only: last non-pasted score × probability of recall today. */
-function masteryCard(el, { compare = false } = {}) {
+function masteryCard(el) {
   if (!el) return;
   api("GET", "/api/proof/mastery").then((m) => {
     if (!el.isConnected) return;
     const bar = (x) => x == null ? `<span class="faint">unproven</span>` : `<span class="row" style="gap:8px;flex-wrap:nowrap"><span class="progress" style="width:110px"><i style="width:${x}%"></i></span><span class="num">${x}%</span></span>`;
-    if (compare) {
-      const rows = C.tracks.map((t) => { const g = m.tracks.find((x) => x.key === t.k), self = Math.round(((S.skills[t.k] || 0) / 5) * 100); const gap = g && g.mastery != null && g.proven >= 2 ? self - g.mastery : null; return { t, g, self, gap }; });
-      el.innerHTML = `<div class="card-h"><h3>Measured vs self-rated</h3><span class="muted" style="font-size:13px">Measured = Proof reviews only (pasted answers excluded). Gaps of 35+ points are flagged.</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Track</th><th>Self-rated</th><th>Measured</th><th>Proven</th><th></th></tr></thead><tbody>${rows.map(({ t, g, self, gap }) => `<tr${gap != null && Math.abs(gap) >= 35 ? ' class="gap"' : ""}><td>${esc(t.t)}</td><td>${bar(self)}</td><td>${bar(g ? g.mastery : null)}</td><td class="num muted">${g ? `${g.proven}/${g.questions}` : "0"}</td><td>${gap == null ? "" : gap >= 35 ? `<span class="pill warn">overrated by ${gap}</span>` : gap <= -35 ? `<span class="pill good">underrated by ${-gap}</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
-      return;
-    }
     if (!m.questions.length) { el.innerHTML = `<div class="card-h"><h3>Mastery</h3></div><div class="empty">Answer your first question: mastery per concept and project is built only from reviews.</div>`; return; }
     const tbl = (rows, name) => `<table><thead><tr><th>${name}</th><th>Mastery</th><th>Proven</th></tr></thead><tbody>${rows.map((g) => `<tr><td>${esc(name === "Track" ? TRACK_NAME[g.key] || g.key : g.key)}</td><td>${bar(g.mastery)}</td><td class="num muted">${g.proven}/${g.questions}${g.pasted ? ` · ${g.pasted} pasted` : ""}</td></tr>`).join("")}</tbody></table>`;
     el.innerHTML = `<div class="card-h"><h3>Mastery</h3><span class="muted" style="font-size:13px">Last honest score × chance you still remember it today</span></div>
@@ -1340,12 +1318,66 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "/" && !Palette.isOpen() && !(a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable || a.closest(".CodeMirror")))) { e.preventDefault(); Palette.open(""); }
 });
 
+/* ---------------- observation: active time, attributed to what is on screen ---------------- */
+let lastInput = 0;
+["keydown", "pointerdown", "wheel", "input"].forEach((e) => document.addEventListener(e, () => { lastInput = Date.now(); }, { passive: true, capture: true }));
+document.addEventListener("scroll", () => { lastInput = Date.now(); }, { passive: true, capture: true });
+function attribution() {
+  const r = route(), arg = routeArg();
+  if (r === "arena") { const it = arenaItem(); return it.col === "ml" ? { key: `drill:${it.d.id}`, area: it.d.track === "ml" ? "dl" : it.d.track, note: `Arena · ${it.d.title}` } : { key: `pat:${it.p.id}`, area: "code", note: `Arena · ${it.p.pattern}` }; }
+  if (r === "path" && arg && modById(arg)) { const m = modById(arg); return { key: `mod:${m.id}`, area: stageOf(m).area, mod: m.id, note: `Path · ${m.t}` }; }
+  if (r === "library" && arg) { const n = noteById(arg); if (!n) return null; const m = n.mod && modById(n.mod); return m ? { key: `mod:${m.id}`, area: stageOf(m).area, mod: m.id, note: `Notes · ${m.t}` } : { key: "notes" }; }
+  if (r === "proof" || r === "review") return { key: r };
+  if (r === "diagnostic") return { key: "diag" };
+  return null;
+}
+const TICK = 15000;
+setInterval(() => {
+  if (document.hidden || !document.hasFocus() || Date.now() - lastInput > 60000) return;
+  const a = attribution(); if (!a) return;
+  const before = dayCount(TODAY()), act = ACT(), inc = TICK / 60000;
+  act.min[a.key] = Math.round(((act.min[a.key] || 0) + inc) * 100) / 100;
+  if (a.area) {
+    let e = S.log.find((x) => x.src === "auto" && x.date === TODAY() && x.key === a.key);
+    if (!e) { e = { id: uid(), date: TODAY(), min: 0, area: a.area, mod: a.mod || null, note: a.note, src: "auto", key: a.key }; S.log.push(e); }
+    e.min = Math.round((e.min + inc) * 100) / 100;
+  }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+  if (!syncT) schedSync(60000);
+  if (dayCount(TODAY()) !== before) { nav(); if (dayCount(TODAY()) >= BANK && before < BANK) toast("Day banked."); }
+}, TICK);
+
+/* What the planner agent needs to know about the curriculum, synced with the state (only when it changes). */
+function updateCtx() {
+  const strip = (x) => String(x).replace(/<[^>]+>/g, "").replace(/\$/g, "");
+  const act = C.modules.filter((m) => modStatus(m.id) === "active"), open = C.modules.filter((m) => modStatus(m.id) === "todo").slice(0, 2);
+  const ctx = { drills: DR.map((d) => ({ id: d.id, title: d.title, lvl: d.lvl, track: d.track })),
+    modules: act.concat(open).slice(0, 5).map((m) => ({ id: m.id, t: m.t, status: modStatus(m.id), track: TRACK_OF_AREA[stageOf(m).area], checks: m.checks.map(strip) })) };
+  if (JSON.stringify(ctx) !== JSON.stringify(S.ctx)) { S.ctx = ctx; save(); }
+}
+/* Once a day: sync every repository (commits feed the "ship" block), then read commits per day. */
+async function dailyWorker() {
+  if (!(Sync && Sync.enabled)) return;
+  const [p] = await Promise.all([api("GET", "/api/plan").catch(() => null), refreshMastery()]);
+  todayPlan = p && p.plan; updateCtx();
+  try {
+    if (localStorage.getItem("forge.repoSync") !== TODAY()) {
+      const repos = await api("GET", "/api/repos");
+      for (const r of repos) for (let i = 0; i < 60; i++) { const x = await api("POST", `/api/repos/${r.id}/sync`, {}); if (x.done) break; }
+      localStorage.setItem("forge.repoSync", TODAY());
+    }
+  } catch (e) {}
+  try { const a = await api("GET", "/api/activity"); commitDays = a.commits || {}; localStorage.setItem("forge.commits", JSON.stringify(commitDays)); } catch (e) {}
+  nav(); if (["now", "today", "path", "skills"].includes(route())) render();
+}
+
 /* ---------------- boot ---------------- */
 applyTheme();
 render();
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if (Sync) {
-  Sync.detect().then((ok) => { if (ok) { Sync.sync(); refreshProof(); if (["sources", "context", "proof", "skills"].includes(route())) render(); } });
+  updateCtx();
+  Sync.detect().then((ok) => { if (ok) { Sync.sync(); refreshProof(); dailyWorker(); if (["sources", "context", "proof", "skills"].includes(route())) render(); } });
   setInterval(() => { if (!document.hidden && Sync.status !== "local") Sync.sync(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.sync(); });
   window.addEventListener("online", () => Sync.sync());

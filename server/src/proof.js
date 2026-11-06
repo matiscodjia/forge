@@ -22,7 +22,7 @@ export function parseJSON(text) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
 }
 
-async function ask(db, env, task, items, instruction, question, { now, fetch: f, maxTokens = 700 }) {
+export async function ask(db, env, task, items, instruction, question, { now, fetch: f, maxTokens = 700 }) {
   if (!ready(env, task)) throw bad("No AI provider is available for this task. Deploy with the Workers AI binding or set AI_CONFIG.", 503);
   const cfg = aiConfig(env), { provider, decision } = resolveRoute(task, items, cfg);
   const ctx = contextGate(items, provider, { task, decision, now: () => now.toISOString() });
@@ -49,7 +49,7 @@ Reply with JSON only, no prose:
 /** Create one question from a random recent chunk. Without `force` (the daily cron), only when none exists today. */
 export async function generate(db, env, { now = new Date(), fetch: f, force = false } = {}) {
   const day = today(env, now);
-  const made = await db.prepare("SELECT count(*) AS n FROM questions WHERE day = ?").bind(day).first("n");
+  const made = await db.prepare("SELECT count(*) AS n FROM questions WHERE day = ? AND check_key IS NULL").bind(day).first("n");
   if (!force && made > 0) return { created: false, reason: "already one today" };
   if (made >= MAX_NEW_PER_DAY) throw bad(`At most ${MAX_NEW_PER_DAY} new questions a day: review instead.`, 429);
   if (!ready(env, "question_gen")) throw bad("No AI provider is available for question generation.", 503);
@@ -112,7 +112,7 @@ export async function answer(db, env, id, body, { now = new Date(), fetch: f } =
     db.prepare("UPDATE questions SET due = ?, stability = ?, difficulty = ?, reps = ?, lapses = ?, last_review = ? WHERE id = ?")
       .bind(next.due, next.stability, next.difficulty, next.reps, next.lapses, day, id)
   ]);
-  return { score: s, fix, pasted, rating, due: next.due, interval: next.interval, rubric: q.rubric,
+  return { score: s, fix, pasted, rating, due: next.due, interval: next.interval, rubric: q.rubric, check_key: q.check_key || null,
     source: { title: q.source_title, text: q.source_text, meta: q.source_meta ? JSON.parse(q.source_meta) : {}, source_id: q.source_id, kind: q.kind } };
 }
 
@@ -128,7 +128,7 @@ export async function session(db, env, { now = new Date() } = {}) {
   const [due, done, made, upcoming, totals] = await db.batch([
     db.prepare("SELECT id, prompt, concept, project, kind, track, reps, lapses, due, day FROM questions WHERE retired = 0 AND due <= ? ORDER BY reps = 0, due LIMIT 50").bind(day),
     db.prepare("SELECT r.question_id, r.score, r.pasted, r.due, q.concept, q.prompt FROM reviews r JOIN questions q ON q.id = r.question_id WHERE r.day = ? ORDER BY r.at").bind(day),
-    db.prepare("SELECT count(*) AS n FROM questions WHERE day = ?").bind(day),
+    db.prepare("SELECT count(*) AS n FROM questions WHERE day = ? AND check_key IS NULL").bind(day),
     db.prepare("SELECT due, count(*) AS n FROM questions WHERE retired = 0 AND due > ? GROUP BY due ORDER BY due LIMIT 10").bind(day),
     db.prepare("SELECT (SELECT count(*) FROM questions WHERE retired = 0) AS questions, (SELECT count(*) FROM reviews) AS reviews, (SELECT count(*) FROM reviews WHERE pasted = 1) AS pasted")
   ]);
@@ -143,7 +143,7 @@ export async function session(db, env, { now = new Date() } = {}) {
 export async function mastery(db, env, { now = new Date() } = {}) {
   const day = today(env, now);
   const rows = (await db.prepare(
-    `SELECT q.id, q.prompt, q.concept, q.project, q.track, q.kind, q.due, q.reps, r.score, r.day, r.stability,
+    `SELECT q.id, q.prompt, q.concept, q.project, q.track, q.kind, q.due, q.reps, q.check_key, r.score, r.day, r.stability,
             (SELECT count(*) FROM reviews p WHERE p.question_id = q.id AND p.pasted = 1) AS pasted
      FROM questions q LEFT JOIN reviews r ON r.id = (SELECT id FROM reviews r2 WHERE r2.question_id = q.id AND r2.pasted = 0 ORDER BY r2.at DESC LIMIT 1)
      WHERE q.retired = 0 ORDER BY q.created DESC LIMIT 1000`).all()).results;
@@ -153,5 +153,48 @@ export async function mastery(db, env, { now = new Date() } = {}) {
     for (const q of qs) { const k = q[key]; if (!k) continue; const g = m.get(k) || { key: k, sum: 0, n: 0, questions: 0, pasted: 0 }; g.questions++; g.pasted += q.pasted; if (q.mastery != null) { g.sum += q.mastery; g.n++; } m.set(k, g); }
     return [...m.values()].map((g) => ({ key: g.key, mastery: g.n ? Math.round(g.sum / g.n) : null, proven: g.n, questions: g.questions, pasted: g.pasted })).sort((a, b) => (b.proven - a.proven) || String(a.key).localeCompare(b.key));
   };
-  return { day, tracks: group("track"), concepts: group("concept"), projects: group("project"), questions: qs.slice(0, 200) };
+  // A Path exit check is proven by its latest honest answer: 70 or more.
+  const checks = {};
+  for (const q of qs) if (q.check_key && !(q.check_key in checks)) checks[q.check_key] = { score: q.score, mastery: q.mastery, proven: q.score != null && q.score >= 70, id: q.id };
+  return { day, tracks: group("track"), concepts: group("concept"), projects: group("project"), checks, questions: qs.slice(0, 200) };
+}
+
+const CHECK = `\nThe source is one exit check of a curriculum module (what Matis must be able to do without notes). Ask the question that proves he can do exactly that.`;
+/** A question that proves one Path exit check ("<module>#<index>"). One open question per check. */
+export async function generateCheck(db, env, body, { now = new Date(), fetch: f } = {}) {
+  const key = String(body?.key || ""), check = String(body?.check || "").replace(/<[^>]+>/g, "").trim().slice(0, 1500);
+  if (!/^[\w-]{1,60}#\d{1,2}$/.test(key) || !check) throw bad("key must look like <module>#<n>, with the check text.");
+  const open = await db.prepare("SELECT id FROM questions WHERE check_key = ? AND retired = 0 ORDER BY created DESC LIMIT 1").bind(key).first();
+  if (open) return { created: false, id: open.id };
+  const title = `${String(body.title || key.split("#")[0]).slice(0, 120)} · exit check ${Number(key.split("#")[1]) + 1}`;
+  const item = { id: `check:${key}`, kind: "check", title, text: check, visibility: "ai" };
+  const { text } = await ask(db, env, "question_gen", [item], GEN + CHECK, "", { now, fetch: f });
+  const q = parseJSON(text);
+  if (!q || typeof q.question !== "string" || !q.question.trim()) throw bad("The model did not return a usable question. Try again.", 502);
+  const rubric = (Array.isArray(q.rubric) ? q.rubric : [q.rubric]).filter((x) => typeof x === "string" && x.trim()).map((x) => `- ${x.trim()}`).join("\n") || `- ${check}`;
+  const track = TRACKS.includes(body.track) ? body.track : TRACKS.includes(q.track) ? q.track : "ml";
+  const id = uid(), day = today(env, now);
+  await db.prepare(
+    `INSERT INTO questions (id, chunk_id, source_id, kind, project, track, concept, prompt, rubric, source_title, source_text, source_meta, visibility, created, day, due, check_key)
+     VALUES (?1, ?2, NULL, 'check', NULL, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 'ai', ?9, ?10, ?10, ?11)`)
+    .bind(id, item.id, track, String(q.concept || "").trim().toLowerCase().slice(0, 80) || null, q.question.trim().slice(0, 2000), rubric.slice(0, 3000), title, check, now.toISOString(), day, key).run();
+  return { created: true, id };
+}
+
+/** Diagnostic Parts 2–4 graded by the model against the key points, instead of self-ticking. */
+export async function gradeDiagnostic(db, env, body, { now = new Date(), fetch: f } = {}) {
+  if (!ready(env, "grading")) throw bad("No AI provider is available for grading.", 503);
+  const part = String(body?.part || "").replace(/[^\w-]/g, "").slice(0, 20), qs = Array.isArray(body?.questions) ? body.questions.slice(0, 12) : [];
+  if (!part || !qs.length) throw bad("part and questions are required.");
+  const out = [];
+  for (let i = 0; i < qs.length; i++) {
+    const q = qs[i], answer = String(q.answer || "").slice(0, MAX_ANSWER).trim();
+    if (answer.length < 3) { out.push({ score: 0, fix: "No answer." }); continue; }
+    const strip = (x) => String(x || "").replace(/<[^>]+>/g, "");
+    const item = { id: `diag:${part}:${i}`, kind: "diagnostic", visibility: "trusted", title: strip(q.q).slice(0, 200), text: `Question: ${strip(q.q)}\nRubric:\n${(q.keys || []).map((k) => `- ${strip(k)}`).join("\n")}` };
+    const { text } = await ask(db, env, "grading", [item], GRADE, `Answer:\n${answer}`, { now, fetch: f, maxTokens: 200 });
+    const g = parseJSON(text), score = Math.max(0, Math.min(100, Math.round(Number(g?.score))));
+    out.push(Number.isFinite(score) ? { score, fix: String(g.fix || "").slice(0, 300) } : { score: 0, fix: "The grader's reply was unusable: graded 0." });
+  }
+  return { scores: out, score: Math.round(out.reduce((a, x) => a + x.score, 0) / out.length) };
 }

@@ -3,7 +3,7 @@
    Notes: last writer wins on `updated`, deletions travel as tombstones. */
 (function (root) {
 "use strict";
-const KEYS = ["days", "weeks", "practice", "code", "mocks", "theory", "skills", "pipeline", "path", "srs", "revDays", "log", "mock", "theoryRun"];
+const KEYS = ["days", "weeks", "practice", "code", "mocks", "theory", "skills", "pipeline", "path", "srs", "revDays", "log", "mock", "theoryRun", "drills", "activity", "ctx"];
 const META = "forge.sync";
 const h = (v) => { const s = JSON.stringify(v === undefined ? null : v); let x = 5381; for (let i = 0; i < s.length; i++) x = ((x << 5) + x + s.charCodeAt(i)) | 0; return (x >>> 0).toString(36) + ":" + s.length; };
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);

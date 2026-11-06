@@ -3,7 +3,7 @@
 
 import { rechunkNotes } from "./sources.js";
 
-export const SYNC_KEYS = ["days", "weeks", "practice", "code", "mocks", "theory", "skills", "pipeline", "path", "srs", "revDays", "log", "mock", "theoryRun"];
+export const SYNC_KEYS = ["days", "weeks", "practice", "code", "mocks", "theory", "skills", "pipeline", "path", "srs", "revDays", "log", "mock", "theoryRun", "drills", "activity", "ctx"];
 const KEYSET = new Set(SYNC_KEYS);
 const VIS = new Set(["private", "trusted", "ai"]);
 const MAX_VALUE = 1_500_000; // D1 rows are limited to 2 MB
