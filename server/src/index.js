@@ -3,7 +3,7 @@ import { verifyAccess } from "./auth.js";
 import { getState, putState } from "./state.js";
 import { listSources, getSource, createSource, appendParts, patchSource, deleteSource, search, listAudit } from "./sources.js";
 import { listRepos, addRepo, patchRepo, deleteRepo, syncStep } from "./github.js";
-import { session, generate, answer, retire, mastery, generateCheck, gradeDiagnostic } from "./proof.js";
+import { session, generate, answer, retire, mastery, generateCheck, gradeDiagnostic, contest } from "./proof.js";
 import { getPlan, plan, activity } from "./planner.js";
 import { ready, routing } from "./ai.js";
 import { tutor } from "./tutor.js";
@@ -37,6 +37,7 @@ const ROUTES = [
   ["POST", /^\/api\/proof\/generate$/, (c) => generate(c.db, c.env, { force: true })],
   ["POST", /^\/api\/proof\/([\w-]+)\/answer$/, async (c, [id]) => answer(c.db, c.env, id, await c.req.json())],
   ["POST", /^\/api\/proof\/([\w-]+)\/retire$/, (c, [id]) => retire(c.db, id)],
+  ["POST", /^\/api\/proof\/([\w-]+)\/contest$/, (c, [id]) => contest(c.db, c.env, id)],
   ["POST", /^\/api\/tutor$/, async (c) => tutor(c.db, c.env, await c.req.json())],
   ["POST", /^\/api\/proof\/check$/, async (c) => generateCheck(c.db, c.env, await c.req.json())],
   ["POST", /^\/api\/diagnostic\/grade$/, async (c) => gradeDiagnostic(c.db, c.env, await c.req.json())],

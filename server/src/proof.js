@@ -5,6 +5,7 @@ import { resolveRoute } from "./router.js";
 import { callLLM, d1Audit } from "./llm.js";
 import { aiConfig, ready } from "./ai.js";
 import { schedule, ratingOf, retrievability, daysBetween, dayIn } from "./fsrs.js";
+import { gradeAnswer, regrade } from "./grade.js";
 
 export const TRACKS = ["coding", "ml", "math", "sys", "ship", "eng", "reach"];
 const MAX_NEW_PER_DAY = 5, MAX_ANSWER = 8000;
@@ -28,12 +29,12 @@ export function parseJSON(text) {
   try { return fix(JSON.parse(raw.replace(/\\(?=[a-zA-Z]{2,})/g, "\\\\"))); } catch (e) { return null; }
 }
 
-export async function ask(db, env, task, items, instruction, question, { now, fetch: f, maxTokens = 700 }) {
+export async function ask(db, env, task, items, instruction, question, { now, fetch: f, maxTokens = 700, temperature }) {
   if (!ready(env, task)) throw bad("No AI provider is available for this task. Deploy with the Workers AI binding or set AI_CONFIG.", 503);
   const cfg = aiConfig(env), { provider, decision } = resolveRoute(task, items, cfg);
   const ctx = contextGate(items, provider, { task, decision, now: () => now.toISOString() });
   if (!ctx.items.length) return { ctx, text: null };
-  const out = await callLLM(ctx, { instruction, question, maxTokens }, { fetch: f || fetch, env, providers: cfg.providers, audit: d1Audit(db) });
+  const out = await callLLM(ctx, { instruction, question, maxTokens, temperature }, { fetch: f || fetch, env, providers: cfg.providers, audit: d1Audit(db) });
   return { ctx, text: out.text };
 }
 
@@ -47,10 +48,7 @@ Rules:
 Reply with JSON only, no prose:
 {"concept": "<2-4 word concept, lowercase>", "track": "<one of: coding (algorithms, interview coding), ml (machine/deep learning, LLMs), math, sys (PyTorch, systems, GPU, Rust/C performance), ship (engineering of his own projects), eng (English), reach (visibility)>", "question": "<the question>", "rubric": ["<key point a full answer must contain>", "<3 to 5 points>"]}`;
 
-const GRADE = `You grade Matis's answer to an exam question. The source contains the question, the rubric and the original material; the answer follows the sources.
-Score 0-100: 90+ complete and precise; 70-89 correct with minor gaps; 50-69 partly correct; below 50 wrong, vague or mostly missing. Be strict: restating the question or listing buzzwords scores low. Judge content, not style or language.
-Reply with JSON only, no prose:
-{"score": <integer 0-100>, "fix": "<one line: the most important missing or wrong point, or 'Nothing to fix.'>"}`;
+// Grading: see grade.js (point by point, quotes verified, score computed in code).
 
 /** Create one question from a random recent chunk. Without `force` (the daily cron), only when none exists today. */
 export async function generate(db, env, { now = new Date(), fetch: f, force = false } = {}) {
@@ -104,21 +102,17 @@ export async function answer(db, env, id, body, { now = new Date(), fetch: f } =
     await db.prepare("UPDATE questions SET retired = 1 WHERE id = ?").bind(id).run();
     throw bad("Its source is private now, so it can't be graded by an AI. The question was retired.", 409);
   }
-  const item = { id: q.chunk_id, kind: q.kind, title: q.source_title, visibility, text: `Question:\n${q.prompt}\n\nRubric:\n${q.rubric}\n\nSource material:\n${q.source_text}` };
-  const { text } = await ask(db, env, "grading", [item], GRADE, `Answer:\n${ans}`, { now, fetch: f, maxTokens: 300 });
-  if (text === null) throw bad("The grading provider may not read this question's source (visibility). Change the route or the source.", 409);
-  const g = parseJSON(text), score = Math.round(Number(g?.score));
-  if (!g || !Number.isFinite(score)) throw bad("The grader returned something unreadable. Try again.", 502);
-  const s = Math.min(100, Math.max(0, score)), rating = ratingOf(s, pasted);
+  const g = await gradeAnswer(db, env, { id: q.chunk_id, kind: q.kind, title: q.source_title, question: q.prompt, rubric: q.rubric, material: q.source_text, answer: ans }, { now, fetch: f });
+  const s = g.score, rating = ratingOf(s, pasted);
   const next = schedule(q.stability ? { stability: q.stability, difficulty: q.difficulty, last_review: q.last_review, reps: q.reps, lapses: q.lapses } : null, rating, day);
   const fix = String(g.fix || "").slice(0, 600);
   await db.batch([
-    db.prepare(`INSERT INTO reviews (id, question_id, at, day, answer, score, rating, feedback, typed_ms, elapsed_ms, pasted, due, stability, difficulty)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(uid(), id, now.toISOString(), day, ans, s, rating, fix, typed, elapsed, pasted ? 1 : 0, next.due, next.stability, next.difficulty),
+    db.prepare(`INSERT INTO reviews (id, question_id, at, day, answer, score, rating, feedback, typed_ms, elapsed_ms, pasted, due, stability, difficulty, detail)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(uid(), id, now.toISOString(), day, ans, s, rating, fix, typed, elapsed, pasted ? 1 : 0, next.due, next.stability, next.difficulty, JSON.stringify(g.detail)),
     db.prepare("UPDATE questions SET due = ?, stability = ?, difficulty = ?, reps = ?, lapses = ?, last_review = ? WHERE id = ?")
       .bind(next.due, next.stability, next.difficulty, next.reps, next.lapses, day, id)
   ]);
-  return { score: s, fix, pasted, rating, due: next.due, interval: next.interval, rubric: q.rubric, check_key: q.check_key || null,
+  return { score: s, fix, pasted, rating, due: next.due, interval: next.interval, rubric: q.rubric, check_key: q.check_key || null, detail: g.detail, contestable: !pasted,
     source: { title: q.source_title, text: q.source_text, meta: q.source_meta ? JSON.parse(q.source_meta) : {}, source_id: q.source_id, kind: q.kind } };
 }
 
@@ -197,10 +191,32 @@ export async function gradeDiagnostic(db, env, body, { now = new Date(), fetch: 
     const q = qs[i], answer = String(q.answer || "").slice(0, MAX_ANSWER).trim();
     if (answer.length < 3) { out.push({ score: 0, fix: "No answer." }); continue; }
     const strip = (x) => String(x || "").replace(/<[^>]+>/g, "");
-    const item = { id: `diag:${part}:${i}`, kind: "diagnostic", visibility: "ai", title: strip(q.q).slice(0, 200), text: `Question: ${strip(q.q)}\nRubric:\n${(q.keys || []).map((k) => `- ${strip(k)}`).join("\n")}` };
-    const { text } = await ask(db, env, "grading", [item], GRADE, `Answer:\n${answer}`, { now, fetch: f, maxTokens: 200 });
-    const g = parseJSON(text), score = Math.max(0, Math.min(100, Math.round(Number(g?.score))));
-    out.push(Number.isFinite(score) ? { score, fix: String(g.fix || "").slice(0, 300) } : { score: 0, fix: "The grader's reply was unusable: graded 0." });
+    try {
+      const g = await gradeAnswer(db, env, { id: `diag:${part}:${i}`, kind: "diagnostic", title: strip(q.q).slice(0, 200), question: strip(q.q), rubric: (q.keys || []).map(strip), answer }, { now, fetch: f });
+      out.push({ score: g.score, fix: g.fix.slice(0, 300), detail: g.detail });
+    } catch (e) { out.push({ score: 0, fix: "The grader's reply was unusable: graded 0." }); }
   }
   return { scores: out, score: Math.round(out.reduce((a, x) => a + x.score, 0) / out.length) };
+}
+
+const GAVE_UP = "(didn't know: explained)";
+/** POST /api/proof/:id/contest → the latest grade re-graded by independent examiners (once); the schedule follows. */
+export async function contest(db, env, id, { now = new Date(), fetch: f } = {}) {
+  const q = await db.prepare("SELECT * FROM questions WHERE id = ?").bind(id).first(); if (!q) throw bad("Question not found", 404);
+  const r = await db.prepare("SELECT * FROM reviews WHERE question_id = ? ORDER BY at DESC LIMIT 1").bind(id).first();
+  if (!r) throw bad("Nothing to contest yet.", 404);
+  if (r.contested) throw bad("This grade was already contested.", 409);
+  if (r.pasted) throw bad("Pasted answers never count, so there is nothing to contest.", 409);
+  if (r.answer === GAVE_UP) throw bad("You asked for the explanation: answer it from memory next time.", 409);
+  const res = await regrade(db, env, { id: q.chunk_id, kind: q.kind, title: q.source_title, question: q.prompt, rubric: q.rubric, material: q.source_text, answer: r.answer }, r.score, { now, fetch: f });
+  const prev = await db.prepare("SELECT stability, difficulty, day FROM reviews WHERE question_id = ? AND at < ? ORDER BY at DESC LIMIT 1").bind(id, r.at).first();
+  const before = prev ? { stability: prev.stability, difficulty: prev.difficulty, last_review: prev.day, reps: Math.max(0, q.reps - 1), lapses: Math.max(0, q.lapses - (r.rating === 1 ? 1 : 0)) } : null;
+  const rating = ratingOf(res.score, false), next = schedule(before, rating, r.day);
+  const detail = { ...res.detail, contested: { before: r.score, grades: res.grades, rule: res.rule } };
+  await db.batch([
+    db.prepare("UPDATE reviews SET score = ?, rating = ?, feedback = ?, detail = ?, contested = 1, due = ?, stability = ?, difficulty = ? WHERE id = ?").bind(res.score, rating, res.fix, JSON.stringify(detail), next.due, next.stability, next.difficulty, r.id),
+    db.prepare("UPDATE questions SET due = ?, stability = ?, difficulty = ?, reps = ?, lapses = ? WHERE id = ?").bind(next.due, next.stability, next.difficulty, next.reps, next.lapses, id)
+  ]);
+  return { score: res.score, before: r.score, grades: res.grades, rule: res.rule, fix: res.fix, detail, pasted: false, rating, due: next.due, interval: next.interval, rubric: q.rubric, check_key: q.check_key || null, contestable: false,
+    source: { title: q.source_title, text: q.source_text, meta: q.source_meta ? JSON.parse(q.source_meta) : {}, source_id: q.source_id, kind: q.kind } };
 }

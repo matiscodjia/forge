@@ -6,7 +6,7 @@ import { plan, getPlan, validate, summarize, activity } from "../src/planner.js"
 import { answer, mastery, gradeDiagnostic } from "../src/proof.js";
 import { aiConfig, routing } from "../src/ai.js";
 import { tutor } from "../src/tutor.js";
-import { fakeD1, setup } from "./helpers/env.js";
+import { fakeD1, setup, gradeReply } from "./helpers/env.js";
 
 const ctx = {
   drills: [{ id: "softmax", title: "Stable softmax", lvl: 1, track: "ml" }, { id: "attention", title: "Causal self-attention", lvl: 3, track: "ml" }, { id: "mha", title: "Multi-head attention", lvl: 3, track: "ml" }],
@@ -22,14 +22,14 @@ function mockAI(planReply, scores = []) {
     const sys = messages[0].content; calls.push({ sys, user: messages[1].content });
     if (sys.includes("planning agent")) return { response: planReply };
     if (sys.includes("ONE exam question")) return { response: JSON.stringify({ concept: "svd", track: "math", question: `Q about: ${messages[1].content.match(/<source[^>]*>\n([^\n]*)/)[1]}`, rubric: ["point"] }) };
-    return { response: JSON.stringify({ score: scores.shift(), fix: "fix" }) };
+    return { response: gradeReply(messages[1].content, scores.shift()) };
   } };
 }
 const now = new Date("2026-11-06T04:00:00+01:00");
 
 test("planner: validated plan, check questions created, idempotent per day, answer ≥ 70 proves a check", async () => {
   const db = fakeD1(); await seedState(db);
-  const AI = mockAI('Sure:\n{"drill": "nope", "module": "linalg", "checks": [5, 1, 1], "concepts": ["SVD"], "why": "You failed attention twice; finish it."}', [82, 40]);
+  const AI = mockAI('Sure:\n{"drill": "nope", "module": "linalg", "checks": [5, 1, 1], "concepts": ["SVD"], "why": "You failed attention twice; finish it."}', ["f", "p"]);
   const r = await plan(db, { AI }, { now });
   assert.equal(r.created, true);
   assert.equal(r.plan.drill, "attention", "unknown id → first unsolved drill");
@@ -45,7 +45,7 @@ test("planner: validated plan, check questions created, idempotent per day, answ
   const qid = r.plan.questions[0];
   await answer(db, { AI }, qid, { answer: "Set the gradient of the squared error to zero: XᵀX w = Xᵀy.", typed_ms: 9000 }, { now });
   const m = await mastery(db, { AI }, { now });
-  assert.equal(m.checks["linalg#1"].proven, true); assert.equal(m.checks["linalg#1"].score, 82);
+  assert.equal(m.checks["linalg#1"].proven, true); assert.equal(m.checks["linalg#1"].score, 100);
 
   // Next day: check 1 is proven, so the plan moves to the others even if the model insists.
   const r2 = await plan(db, { AI: mockAI('{"drill": "attention", "module": "linalg", "checks": [1], "why": "again"}') }, { now: new Date("2026-11-07T04:00:00+01:00") });
@@ -63,9 +63,9 @@ test("planner: unusable reply → deterministic fallback; no context → 409; no
 });
 
 test("diagnostic parts are graded by the model; empty answers score 0", async () => {
-  const db = fakeD1(), AI = mockAI("", [90, 50]);
+  const db = fakeD1(), AI = mockAI("", ["f", "p"]);
   const r = await gradeDiagnostic(db, { AI }, { part: "ml", questions: [{ q: "Why <i>scale</i>?", keys: ["variance"], answer: "To keep the softmax away from saturation." }, { q: "Q2", keys: ["k"], answer: "" }, { q: "Q3", keys: ["k"], answer: "partly" }] }, { now });
-  assert.deepEqual(r.scores.map((x) => x.score), [90, 0, 50]); assert.equal(r.score, 47);
+  assert.deepEqual(r.scores.map((x) => x.score), [100, 0, 50]); assert.equal(r.score, 50);
   assert.ok(!AI.calls[0].user.includes("<i>"), "HTML stripped");
 });
 

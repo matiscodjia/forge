@@ -573,3 +573,14 @@ details.call[open] summary::before { transform: rotate(90deg); }
 .gap .refs, .explain .refs { display: grid; gap: 2px; }
 .gap .refs .next-item { display: flex; justify-content: space-between; gap: 12px; text-decoration: none; color: var(--fg); padding: 7px 0; border-top: 1px solid var(--line); }
 .gap .refs .next-item:hover span:first-child { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+
+/* ---------- grading breakdown ---------- */
+.grade-bd { display: grid; gap: 8px; }
+.grade-bd .gp { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); }
+.grade-bd .gv { font: 700 14px var(--display); text-align: center; border-radius: var(--rs); padding: 2px 0; }
+.grade-bd .full .gv { color: var(--good, #2f8f5b); background: color-mix(in srgb, var(--good, #2f8f5b) 14%, transparent); }
+.grade-bd .partial .gv { color: var(--warn, #b7791f); background: color-mix(in srgb, var(--warn, #b7791f) 14%, transparent); }
+.grade-bd .missing .gv, .grade-bd .err .gv { color: var(--bad, #c0392b); background: color-mix(in srgb, var(--bad, #c0392b) 12%, transparent); }
+.grade-bd .err .gv { font-size: 12px; }
+.grade-bd q { display: block; margin-top: 4px; font-size: 14px; color: var(--fg); font-style: italic; }
+.grade-bd q::before { content: "“"; } .grade-bd q::after { content: "”"; }

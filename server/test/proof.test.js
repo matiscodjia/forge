@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { schedule, ratingOf, retrievability } from "../src/fsrs.js";
 import { generate, answer, session, mastery, looksPasted, parseJSON } from "../src/proof.js";
 import { createSource, appendParts } from "../src/sources.js";
-import { fakeD1, setup } from "./helpers/env.js";
+import { fakeD1, setup, gradeReply } from "./helpers/env.js";
 
 /** Workers AI stand-in: question_gen returns a question in a fenced block, grading pops scripted scores. */
 function mockAI(scores = []) {
@@ -13,7 +13,7 @@ function mockAI(scores = []) {
   return { calls, run: async (model, { messages }) => {
     calls.push({ model, system: messages[0].content, user: messages[1].content });
     if (messages[0].content.includes("ONE exam question")) return { response: 'Here you go:\n```json\n{"concept": "Kalman Gain", "track": "math", "question": "Why does the Kalman gain shrink as P falls?", "rubric": ["K = P Hᵀ S⁻¹", "less uncertainty, trust the prediction"]}\n```' };
-    return { response: JSON.stringify({ score: scores.shift(), fix: "Mention the innovation covariance." }), usage: { prompt_tokens: 300, completion_tokens: 20 } };
+    return { response: gradeReply(messages[1].content, scores.shift()), usage: { prompt_tokens: 300, completion_tokens: 20 } };
   } };
 }
 const at = (day, h = 9) => new Date(`${day}T${String(h).padStart(2, "0")}:00:00+01:00`); // Paris winter time
@@ -37,7 +37,7 @@ test("FSRS-4.5: first intervals and a second Good review (hand-computed)", () =>
 });
 
 test("a week of simulated reviews: daily question, due dates, pasted answers flagged and never raise mastery", async () => {
-  const db = fakeD1(), AI = mockAI([75, 20, 75, 95, 80]), env = { AI };
+  const db = fakeD1(), AI = mockAI(["fp", "p-", "fp", "ff", "fp"]), env = { AI };
   await seed(db);
 
   // Mon 2 Nov: the cron creates today's question once; a second run does nothing.
@@ -69,12 +69,12 @@ test("a week of simulated reviews: daily question, due dates, pasted answers fla
   const before = (await mastery(db, env, { now: at("2026-11-06") })).questions.find((q) => q.id === g1.id).mastery;
   const pasted = "K = P Hᵀ (H P Hᵀ + R)⁻¹. As P falls the gain falls, so the update trusts the prediction more and the measurement less.";
   const r4 = await answer(db, env, g1.id, { answer: pasted, typed_ms: 300 }, { now: at("2026-11-06") });
-  assert.equal(r4.pasted, true, "120 characters in 0.3 s of typing is a paste"); assert.equal(r4.score, 95); assert.equal(r4.due, "2026-11-07");
+  assert.equal(r4.pasted, true, "120 characters in 0.3 s of typing is a paste"); assert.equal(r4.score, 100); assert.equal(r4.due, "2026-11-07");
   const after = (await mastery(db, env, { now: at("2026-11-06") })).questions.find((q) => q.id === g1.id).mastery;
   assert.equal(after, before, "pasting does not raise mastery");
   assert.equal(before, Math.round(75 * retrievability(4, 3.7145)));
   const r5 = await answer(db, env, g2.id, { answer: "P is multiplied by (I - KH): uncertainty only goes down after an update, by an amount set by the gain.", typed_ms: 20000, pasted: false }, { now: at("2026-11-06") });
-  assert.equal(r5.score, 80);
+  assert.equal(r5.score, 75);
 
   // Sun 8 Nov: mastery per track/concept/project comes from reviews only; the paste is counted, not credited.
   const m = await mastery(db, env, { now: at("2026-11-08") });
@@ -93,7 +93,7 @@ test("a week of simulated reviews: daily question, due dates, pasted answers fla
 });
 
 test("journal entries are never exam material; a legacy private source still never reaches the model", async () => {
-  const db = fakeD1(), AI = mockAI([80]), env = { AI };
+  const db = fakeD1(), AI = mockAI(["fp"]), env = { AI };
   const legacy = await seed(db); await db.prepare("UPDATE sources SET visibility = 'private' WHERE id = ?").bind(legacy).run(); await db.prepare("UPDATE chunks SET visibility = 'private' WHERE source_id = ?").bind(legacy).run();
   await db.prepare("INSERT INTO sources (id, kind, title, visibility, created, updated, rev) VALUES ('j1', 'journal', 'Journal', 'ai', 'x', 'x', 0)").run();
   await assert.rejects(generate(db, env, { now: at("2026-11-02"), force: true }), (e) => e.status === 409);
@@ -115,14 +115,14 @@ test("helpers and API routes", async () => {
   assert.deepEqual(parseJSON('noise {"score": 70} trailing'), { score: 70 });
   assert.equal(parseJSON("no json"), null);
 
-  const { call, env } = setup({ AI: mockAI([88]) });
+  const { call, env } = setup({ AI: mockAI(["fp"]) });
   assert.equal((await call("GET", "/api/health")).ai, true);
   await seed(env.DB);
   const { id } = await call("POST", "/api/proof/generate", {});
   const s = await call("GET", "/api/proof");
   assert.equal(s.due[0].id, id); assert.equal(s.ready, true);
   const r = await call("POST", `/api/proof/${id}/answer`, { answer: "The gain falls with P, so the prediction dominates the update.", typed_ms: 8000 });
-  assert.equal(r.score, 88);
+  assert.equal(r.score, 75);
   assert.equal((await call("GET", "/api/proof/mastery")).concepts[0].key, "kalman gain");
   await call("POST", `/api/proof/${id}/retire`, {});
   assert.equal((await call("GET", "/api/proof")).due.length, 0);

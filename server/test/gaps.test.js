@@ -6,7 +6,7 @@ import { createGap, listGaps, dropGap, morePractice } from "../src/gaps.js";
 import { plan } from "../src/planner.js";
 import { answer, session, generate } from "../src/proof.js";
 import { fileThought } from "../src/capture.js";
-import { fakeD1, setup } from "./helpers/env.js";
+import { fakeD1, setup, gradeReply } from "./helpers/env.js";
 
 const ctx = { drills: [{ id: "softmax", title: "Stable softmax", lvl: 1, track: "ml" }, { id: "attention", title: "Causal self-attention", lvl: 3, track: "ml" }], modules: [{ id: "numpy", t: "NumPy", status: "active", track: "ml", checks: ["Broadcasting rules"] }],
   res: [["video", "3Blue1Brown — Essence of linear algebra", "https://youtube.com/x", "linalg"], ["blog", "NumPy — Broadcasting", "https://numpy.org/doc/stable/user/basics.broadcasting.html", "numpy"], ["paper", "Attention Is All You Need", "https://arxiv.org/abs/1706.03762", "gpt"]] };
@@ -18,7 +18,7 @@ const AI = (over = {}) => { const calls = []; return { calls, run: async (m, { m
   if (sys.includes("ONE new exam question")) return { response: '{"question": "Predict the shape of x.sum(axis=(0, 2)) for x of shape (2, 3, 4).", "rubric": ["(3,)"]}' };
   if (sys.includes("planning agent")) return { response: '{"drill": "softmax", "gap": null, "new_gap": "matrix calculus shapes", "why": "x"}' };
   if (sys.includes("Forge's assistant")) return { response: '{"note": "new", "title": "Axes", "gap": "numpy axes", "nudge": "n"}' };
-  return { response: '{"score": 85, "fix": "Nothing to fix."}' };
+  return { response: gradeReply(messages[1].content, "ff") };
 } }; };
 async function seedCtx(db) { await db.prepare("INSERT INTO kv (k, v, rev, updated) VALUES ('ctx', ?, 1, 'x')").bind(JSON.stringify(ctx)).run(); }
 const at = (d) => new Date(`${d}T10:00:00+01:00`);

@@ -26,3 +26,11 @@ export function setup(env = {}) {
   const call = async (method, path, body) => { const r = await f(path, { method, headers: body !== undefined ? { "content-type": "application/json" } : {}, body: body !== undefined ? JSON.stringify(body) : undefined }); const d = await r.json(); if (!r.ok) throw Object.assign(new Error(d.error), { status: r.status }); return d; };
   return { env: e, f, call };
 }
+
+/** A point-by-point grader reply for tests. spec: one char per rubric point, f = full, p = partial, - = missing;
+    each "!" adds a factual error. Quotes are copied from the answer, so the code can verify them. */
+export function gradeReply(user, spec) {
+  const ans = (String(user).split("Answer:\n")[1] || "").trim(), quote = ans.split(/\s+/).slice(0, 6).join(" ");
+  const points = [...spec.replace(/!/g, "")].map((c, i) => ({ i: i + 1, verdict: { f: "full", p: "partial", "-": "missing" }[c], quote: c === "-" ? "" : quote }));
+  return JSON.stringify({ points, errors: [...spec].filter((c) => c === "!").map(() => ({ quote, why: "wrong" })), fix: "Mention the innovation covariance." });
+}

@@ -695,7 +695,7 @@ VIEWS.diagnostic = (v) => {
       ${run.done ? (run.grades ? `<button class="btn primary" id="tsave">Save ${run.grades.score}/100</button>` : `<button class="btn primary" id="tgrade">Grade</button>`) : `<button class="btn primary" id="tsubmit">Submit</button>`}<button class="btn small" id="tabort">${run.done ? "Discard" : "Abandon"}</button></div></div>
     <div style="margin-top:12px">${part.qs.map((q, i) => `<div class="q"><div class="row" style="justify-content:space-between"><b>Question ${i + 1}</b></div><div class="qt math">${q.q}</div>
       <textarea class="input" data-q="${i}" ${run.done ? "readonly" : ""} placeholder="Your answer…">${esc(run.answers[i] || "")}</textarea>
-      ${run.grades ? `<div class="row" style="gap:12px;align-items:baseline"><span class="score sm ${scoreCls(run.grades.scores[i].score)} num">${run.grades.scores[i].score}</span><span class="muted" style="font-size:14px">${esc(run.grades.scores[i].fix)}</span></div><div class="keys"><span class="eyebrow">Key points</span>${q.keys.map((k) => `<div class="math muted" style="font-size:14px">· ${k}</div>`).join("")}</div>` : ""}</div>`).join("")}</div>`;
+      ${run.grades ? `<div class="row" style="gap:12px;align-items:baseline"><span class="score sm ${scoreCls(run.grades.scores[i].score)} num">${run.grades.scores[i].score}</span>${run.grades.scores[i].detail ? "" : `<span class="muted" style="font-size:14px">${esc(run.grades.scores[i].fix)}</span>`}</div>${run.grades.scores[i].detail ? gradeHtml(run.grades.scores[i].detail, run.grades.scores[i].fix) : `<div class="keys"><span class="eyebrow">Key points</span>${q.keys.map((k) => `<div class="math muted" style="font-size:14px">· ${k}</div>`).join("")}</div>`}` : ""}</div>`).join("")}</div>`;
   $$("textarea[data-q]", body).forEach((t) => t.oninput = () => { run.answers[t.dataset.q] = t.value; save(); });
   $("#tabort").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Click again to confirm"; return; } S.theoryRun = null; save(); render(); };
   if (!run.done) {
@@ -1258,6 +1258,17 @@ let pf = null; /* answer in progress: { qid, text, started, typed, last, pasted 
 let pr = null; /* last graded result, shown until "Next" */
 const scoreCls = (s) => s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
 const dueTxt = (d) => { const n = Math.round((Date.parse(d) - Date.parse(TODAY())) / 864e5); return n <= 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days (${d})`; };
+/** The grade, point by point: the verdict on each rubric point with the words of the answer that earned it. */
+const VERDICT = { full: ["✓", "full"], partial: ["½", "partial"], missing: ["✗", "missing"] };
+function gradeHtml(d, fix) {
+  if (!d || !Array.isArray(d.points)) return fix ? `<p style="margin:0"><b>Fix:</b> ${esc(fix)}</p>` : "";
+  const c = d.contested;
+  return `<div class="grade-bd">
+    ${d.points.map((p) => `<div class="gp ${p.verdict}"><span class="gv" title="${VERDICT[p.verdict][1]}">${VERDICT[p.verdict][0]}</span><div><div class="math">${inline(p.text)}</div>${p.quote && p.verified ? `<q>${esc(p.quote)}</q>` : ""}${!p.verified && p.claimed !== "missing" ? `<span class="faint" style="font-size:12px">The grader claimed ${esc(p.claimed)} but quoted words that are not in your answer: not counted.</span>` : ""}</div></div>`).join("")}
+    ${(d.errors || []).map((e) => `<div class="gp err"><span class="gv" title="factual error">−10</span><div><q>${esc(e.quote)}</q><span class="faint" style="font-size:13px"> ${esc(e.why)}</span></div></div>`).join("")}
+    ${fix ? `<p style="margin:8px 0 0"><b>Fix:</b> ${esc(fix)}</p>` : ""}
+    ${c ? `<p class="faint" style="margin:6px 0 0;font-size:12px">Contested: ${c.grades.join(" · ")} → ${esc(c.rule)}.</p>` : ""}</div>`;
+}
 VIEWS.proof = (v) => {
   if (needsWorker(v)) return;
   v.innerHTML = `<div class="faint">Loading…</div>`;
@@ -1276,11 +1287,11 @@ VIEWS.proof = (v) => {
       main = `<section class="card review">
         <div class="row" style="justify-content:space-between"><span class="row" style="gap:8px"><span class="score ${scoreCls(pr.score)} num">${pr.score}</span>${pr.pasted ? `<span class="pill warn" title="Graded, but it never counts toward mastery">pasted · not counted</span>` : ""}</span><span class="muted" style="font-size:13px">Back ${esc(dueTxt(pr.due))}</span></div>
         <div class="md" style="margin-top:6px"><b>Question.</b> ${md(pr.prompt)}</div>
-        ${pr.gaveUp ? explainHtml(pr.explain, modRefs(pr.check_key && pr.check_key.split("#")[0]), "", "Counted as a miss: it comes back tomorrow. Read, then answer it from memory when it does.") : `<p style="margin:0"><b>Fix:</b> ${esc(pr.fix)}</p>`}
+        ${pr.gaveUp ? explainHtml(pr.explain, modRefs(pr.check_key && pr.check_key.split("#")[0]), "", "Counted as a miss: it comes back tomorrow. Read, then answer it from memory when it does.") : gradeHtml(pr.detail, pr.fix)}
         <details open><summary class="eyebrow" style="cursor:pointer">Rubric</summary><div class="md">${md(pr.rubric)}</div></details>
         <div class="card chunk"><div class="row" style="justify-content:space-between"><b style="font-size:14px">${esc(pr.source.title || "Source")}</b>${pr.source.source_id ? `<a class="faint" style="font-size:13px" href="${sourceHref({ kind: pr.source.kind, source_id: pr.source.source_id })}">Open source →</a>` : ""}</div>
           ${pr.source.kind === "repo" || m.path ? `<pre>${esc(pr.source.text)}</pre>` : `<div class="md" style="margin-top:8px">${md(pr.source.text)}</div>`}</div>
-        <div class="row" style="justify-content:flex-end"><button class="btn primary" id="pnext">${s.due.length ? `Next question (${s.due.length} left)` : "Done"} <kbd>Enter</kbd></button></div></section>`;
+        <div class="row" style="justify-content:flex-end">${pr.contestable && !pr.gaveUp ? `<button class="btn" id="pcontest" title="Independent examiners re-grade it once: the mean of two, or the median of three if they disagree">Contest grade</button>` : ""}<button class="btn primary" id="pnext">${s.due.length ? `Next question (${s.due.length} left)` : "Done"} <kbd>Enter</kbd></button></div></section>`;
     } else if (q) {
       if (!pf || pf.qid !== q.id) pf = { qid: q.id, text: "", started: Date.now(), typed: 0, last: 0, pasted: false };
       main = `<section class="card review">
@@ -1299,6 +1310,15 @@ VIEWS.proof = (v) => {
     math(v);
     masteryCard($("#pmast"));
 
+    const ct = $("#pcontest");
+    if (ct) ct.onclick = () => {
+      ct.disabled = true; ct.textContent = "Re-grading…";
+      api("POST", `/api/proof/${pr.qid}/contest`, {}).then((r) => {
+        const was = pr.score; pr = { ...pr, ...r, contestable: false }; toast(`Re-graded: ${was} → ${r.score} (${r.rule})`);
+        if (r.check_key && !r.pasted) checkProofs[r.check_key] = { proven: r.score >= 70, score: r.score };
+        save(); refreshMastery(); render();
+      }, (e) => { fail(e); ct.disabled = false; ct.textContent = "Contest grade"; });
+    };
     const nx = $("#pnext"); if (nx) { nx.onclick = () => { pr = null; render(); }; nx.focus({ preventScroll: true }); }
     const gen = $("#pgen"); if (gen) gen.onclick = () => { gen.disabled = true; gen.textContent = "Writing a question…"; api("POST", "/api/proof/generate", {}).then(() => render(), (e) => { fail(e); render(); }); };
     const ta = $("#pans");
@@ -1312,7 +1332,7 @@ VIEWS.proof = (v) => {
         if (!ta.value.trim()) return toast("Write an answer first.");
         const b = $("#psend"); b.disabled = true; b.textContent = "Grading…"; ta.readOnly = true;
         api("POST", `/api/proof/${q.id}/answer`, { answer: ta.value, typed_ms: pf.typed, elapsed_ms: Date.now() - pf.started, pasted: pf.pasted })
-          .then((r) => { pr = { ...r, prompt: q.prompt }; pf = null; ACT().recall++; if (r.check_key && r.score >= 70 && !r.pasted) { ACT().checks++; checkProofs[r.check_key] = { proven: true, score: r.score }; } save(); refreshMastery(); render(); }, (e) => { fail(e); b.disabled = false; b.textContent = "Grade"; ta.readOnly = false; if (e.message && /retired/.test(e.message)) { pf = null; render(); } });
+          .then((r) => { pr = { ...r, prompt: q.prompt, qid: q.id }; pf = null; ACT().recall++; if (r.check_key && r.score >= 70 && !r.pasted) { ACT().checks++; checkProofs[r.check_key] = { proven: true, score: r.score }; } save(); refreshMastery(); render(); }, (e) => { fail(e); b.disabled = false; b.textContent = "Grade"; ta.readOnly = false; if (e.message && /retired/.test(e.message)) { pf = null; render(); } });
       };
       $("#psend").onclick = send;
       $("#pidk").onclick = () => {

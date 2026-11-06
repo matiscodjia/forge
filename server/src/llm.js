@@ -16,7 +16,7 @@ export const ENGLISH = "Always write in English, even when the sources or Matis'
 /** The app renders LaTeX between $…$ and $$…$$ (KaTeX), so every formula must be written that way. */
 export const MATH = "Write every formula, symbol or index in LaTeX between $...$ (inline) or $$...$$ (display), e.g. $(AB)_{ij} = \\sum_k A_{ik} B_{kj}$, never as bare text; inside JSON strings, double every backslash.";
 
-export async function callLLM(ctx, { instruction, question = "", maxTokens = 1024 } = {}, { fetch: f = fetch, env = {}, providers, audit }) {
+export async function callLLM(ctx, { instruction, question = "", maxTokens = 1024, temperature } = {}, { fetch: f = fetch, env = {}, providers, audit }) {
   if (!isGated(ctx)) throw new Error("callLLM refuses context that did not pass contextGate");
   const p = providers?.[ctx.provider];
   if (!p || !(p.baseUrl || p.binding)) throw new Error(`Provider "${ctx.provider}" is not configured`);
@@ -24,6 +24,7 @@ export async function callLLM(ctx, { instruction, question = "", maxTokens = 102
   const body = {
     model: ctx.model || p.model,
     max_tokens: maxTokens,
+    ...(temperature != null ? { temperature } : {}),
     messages: [
       { role: "system", content: `${instruction}\n${ENGLISH}\n${MATH}\nCite sources by id like [src:ID]. Use only the sources below; say so when they are not enough.` },
       { role: "user", content: `${sources}\n\n${redact(question)}`.trim() }
@@ -35,7 +36,7 @@ export async function callLLM(ctx, { instruction, question = "", maxTokens = 102
     if (p.binding) {
       // Cloudflare binding (Workers AI): same gated payload, no key, the request stays inside Cloudflare.
       const ai = env[p.binding]; if (!ai || typeof ai.run !== "function") throw new Error(`Binding "${p.binding}" is missing`);
-      data = await ai.run(body.model, { messages: body.messages, max_tokens: body.max_tokens });
+      data = await ai.run(body.model, { messages: body.messages, max_tokens: body.max_tokens, ...(temperature != null ? { temperature } : {}) });
     } else {
       const res = await f(`${p.baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
