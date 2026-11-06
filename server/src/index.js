@@ -7,6 +7,7 @@ import { session, generate, answer, retire, mastery, generateCheck, gradeDiagnos
 import { getPlan, plan, activity } from "./planner.js";
 import { ready, routing } from "./ai.js";
 import { tutor } from "./tutor.js";
+import { importReading } from "./reading.js";
 
 const j = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -38,7 +39,8 @@ const ROUTES = [
   ["POST", /^\/api\/diagnostic\/grade$/, async (c) => gradeDiagnostic(c.db, c.env, await c.req.json())],
   ["GET", /^\/api\/plan$/, (c) => getPlan(c.db, c.env)],
   ["POST", /^\/api\/plan$/, (c) => plan(c.db, c.env, { force: true })],
-  ["GET", /^\/api\/activity$/, (c) => activity(c.db)]
+  ["GET", /^\/api\/activity$/, (c) => activity(c.db)],
+  ["POST", /^\/api\/reading$/, async (c) => importReading(c.db, await c.req.json())]
 ];
 
 export default {

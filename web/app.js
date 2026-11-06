@@ -548,7 +548,6 @@ VIEWS.arena = (v) => {
     <div class="brief">
       ${mock ? `<div class="mockbar"><span class="clock" id="mclock">00:00</span><span>timed mock · ${mock.ids.length} problems · 55 min</span><span style="flex:1"></span><button class="btn primary small" id="mfinish">Finish & score</button><button class="x" id="mabort">abandon</button></div>` : ""}
       <button class="kick" id="kick" type="button" aria-expanded="${pickOpen}">${it.col === "ml" ? "ML from scratch" : mock ? "Mock" : "Interview patterns"} · ${pad(idx + 1)} / ${pad(list.length)} <span>▾</span></button>
-      <div class="langs"><span class="on">python</span><span class="soon">cuda · soon</span></div>
       <h2>${esc(title)}</h2>
       <div class="desc">${desc}</div>
       <div class="tests" id="atests">${testsHtml(it)}</div>
@@ -846,7 +845,8 @@ function moduleView(v, m) {
         <p>${esc(m.build)}</p>
         <label class="field" style="margin-top:14px"><span>Proof: repository, commit, notebook or post</span><div class="row" style="flex-wrap:nowrap"><input class="input" id="proof" placeholder="https://github.com/…" value="${esc(p.proof || "")}">${p.proof && /^https?:/.test(p.proof) ? `<a class="btn" href="${esc(p.proof)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}</div></label></div>
       <div class="card"><div class="card-h"><h3>Learn</h3><span class="muted">a reading list: what counts is the checks above</span></div>
-        <div class="reslist">${m.res.map(([k, t, u]) => `<div class="resitem" style="grid-template-columns:64px minmax(0,1fr)"><span class="pill">${KIND[k] || k}</span><a href="${esc(u)}"${ext(u)}>${esc(t)}</a></div>`).join("")}</div></div>
+        <div class="reslist">${m.res.map(([k, t, u], i) => `<div class="resitem" style="grid-template-columns:64px minmax(0,1fr) auto;align-items:center"><span class="pill">${KIND[k] || k}</span><a href="${esc(u)}"${ext(u)}>${esc(t)}</a>${!importable(k, u) ? "<span></span>" : brainOrigins && brainOrigins.has(u) ? `<span class="m faint">in brain</span>` : `<button class="btn small" data-brain="${i}" type="button">Add to brain</button>`}</div>`).join("")}</div>
+        <p class="m faint" style="margin-top:12px">Add a paper or post when you start reading it: its text then feeds your Proof questions and the tutor.</p></div>
     </div>
     <div style="display:grid;gap:20px;min-width:0">
       <div class="card"><div class="card-h"><h3>Time</h3><span class="pill num">${fmtH(modMin(m.id))} / ${m.hrs} h</span></div>
@@ -862,8 +862,18 @@ function moduleView(v, m) {
     const i = +b.dataset.test; b.disabled = true; b.textContent = "Writing a question…";
     api("POST", "/api/proof/check", { key: ckey(m, i), title: m.t, check: m.checks[i], track: TRACK_OF_AREA[stg.area] }).then(() => { location.hash = "#proof"; }, (e) => { fail(e); b.disabled = false; b.textContent = "Test me"; });
   });
+  $$("[data-brain]", v).forEach((btn) => btn.onclick = () => {
+    if (!(Sync && Sync.enabled)) return toast("The brain lives on the Forge Worker.");
+    const [, t, u] = m.res[+btn.dataset.brain]; btn.disabled = true; btn.textContent = "Reading…";
+    api("POST", "/api/reading", { url: u, title: t, mod: m.id }).then((r) => { (brainOrigins = brainOrigins || new Set()).add(u); toast(r.existing ? "Already in the brain." : `${t}: ${r.chunks} passages added to the brain.`); if (route() === "path" && routeArg() === m.id) render(); },
+      (e) => { fail(e); btn.disabled = false; btn.textContent = "Add to brain"; });
+  });
+  if (!brainOrigins && !brainTried && Sync && Sync.enabled) { brainTried = true; api("GET", "/api/sources").then((r) => { brainOrigins = new Set(r.map((x) => x.origin).filter(Boolean)); if (route() === "path" && routeArg() === m.id) render(); }, () => {}); }
   $("#mnew").onclick = () => { const n = newNote({ title: `${m.t} — notes`, mod: m.id, tags: [stg.area], body: `## What I rebuilt\n\n\n## Bugs I hit\n\n\n## Cards\nQ: \nA: \n` }); location.hash = `#library/${n.id}`; };
 }
+let brainOrigins = null, brainTried = false;
+/** Papers and posts the Worker can read: arXiv links (HTML rendering) and web pages, not other PDFs. */
+const importable = (k, u) => (k === "paper" || k === "blog") && (/arxiv\.org\/(abs|pdf)\//.test(u) || !/\.pdf($|[?#])/i.test(u));
 const TRACK_OF_AREA = { math: "math", dl: "ml", llm: "ml", sys: "sys", res: "ship", code: "coding", eng: "ml" };
 
 /* ---- library ---- */
