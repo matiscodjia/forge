@@ -563,3 +563,8 @@ details.call[open] summary::before { transform: rotate(90deg); }
 @keyframes dfx-fill { to { background: var(--h4); } }
 @keyframes dfx-burst { 0% { opacity: 0; transform: rotate(var(--a)) translateY(-40px) scale(.3); } 12% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(-1 * var(--d) - 40px)) scale(1) rotate(90deg); } }
 @media (prefers-reduced-motion: reduce) { .done-burst { display: none; } .done-card, .done-bars i { animation-duration: .01s; animation-delay: 0s; } }
+
+/* ---------- explanations ---------- */
+.explain { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: var(--rc); padding: 16px 18px; background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.explain .md p { margin: .5em 0 0; } .explain .md p:first-child { margin-top: 0; }
+.explain .refs { display: grid; gap: 2px; } .explain .refs .next-item { display: flex; justify-content: space-between; gap: 12px; text-decoration: none; color: var(--fg); padding: 6px 0; border-top: 1px solid var(--line); }

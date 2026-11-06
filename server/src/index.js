@@ -9,6 +9,7 @@ import { ready, routing } from "./ai.js";
 import { tutor } from "./tutor.js";
 import { importReading } from "./reading.js";
 import { fileThought } from "./capture.js";
+import { explainCard, giveUp } from "./explain.js";
 
 const j = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -42,7 +43,9 @@ const ROUTES = [
   ["POST", /^\/api\/plan$/, (c) => plan(c.db, c.env, { force: true })],
   ["GET", /^\/api\/activity$/, (c) => activity(c.db)],
   ["POST", /^\/api\/reading$/, async (c) => importReading(c.db, await c.req.json())],
-  ["POST", /^\/api\/capture$/, async (c) => fileThought(c.db, c.env, await c.req.json())]
+  ["POST", /^\/api\/capture$/, async (c) => fileThought(c.db, c.env, await c.req.json())],
+  ["POST", /^\/api\/explain$/, async (c) => explainCard(c.db, c.env, await c.req.json())],
+  ["POST", /^\/api\/proof\/([\w-]+)\/giveup$/, (c, [id]) => giveUp(c.db, c.env, id)]
 ];
 
 export default {

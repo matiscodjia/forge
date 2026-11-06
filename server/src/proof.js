@@ -19,7 +19,13 @@ export const looksPasted = (answer, typedMs) => answer.length >= 40 && (answer.l
 export function parseJSON(text) {
   const s = String(text || ""), a = s.indexOf("{"), b = s.lastIndexOf("}");
   if (a < 0 || b <= a) return null;
-  try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+  // LaTeX in JSON strings: "\\frac" is right, but models often write "\frac", which JSON reads as a form feed + "rac".
+  // Tabs, form feeds, backspaces and carriage returns followed by letters are always LaTeX commands here.
+  const fix = (x) => typeof x === "string" ? x.replace(/[\t\f\b\r](?=[a-zA-Z])/g, (c) => "\\" + { "\t": "t", "\f": "f", "\b": "b", "\r": "r" }[c])
+    : Array.isArray(x) ? x.map(fix) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, fix(v)])) : x;
+  const raw = s.slice(a, b + 1);
+  try { return fix(JSON.parse(raw)); } catch (e) {}
+  try { return fix(JSON.parse(raw.replace(/\\(?=[a-zA-Z]{2,})/g, "\\\\"))); } catch (e) { return null; }
 }
 
 export async function ask(db, env, task, items, instruction, question, { now, fetch: f, maxTokens = 700 }) {

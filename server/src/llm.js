@@ -13,6 +13,8 @@ import { isGated, redact } from "./gate.js";
 /** Matis's choice: the assistant always speaks English (the app and the interviews are in English), whatever the
     language of his notes, messages or sources. Every call goes through here, so it is set once. */
 export const ENGLISH = "Always write in English, even when the sources or Matis's messages are in French or another language (translate what you quote; keep code and math as they are).";
+/** The app renders LaTeX between $…$ and $$…$$ (KaTeX), so every formula must be written that way. */
+export const MATH = "Write every formula, symbol or index in LaTeX between $...$ (inline) or $$...$$ (display), e.g. $(AB)_{ij} = \\sum_k A_{ik} B_{kj}$, never as bare text; inside JSON strings, double every backslash.";
 
 export async function callLLM(ctx, { instruction, question = "", maxTokens = 1024 } = {}, { fetch: f = fetch, env = {}, providers, audit }) {
   if (!isGated(ctx)) throw new Error("callLLM refuses context that did not pass contextGate");
@@ -23,7 +25,7 @@ export async function callLLM(ctx, { instruction, question = "", maxTokens = 102
     model: ctx.model || p.model,
     max_tokens: maxTokens,
     messages: [
-      { role: "system", content: `${instruction}\n${ENGLISH}\nCite sources by id like [src:ID]. Use only the sources below; say so when they are not enough.` },
+      { role: "system", content: `${instruction}\n${ENGLISH}\n${MATH}\nCite sources by id like [src:ID]. Use only the sources below; say so when they are not enough.` },
       { role: "user", content: `${sources}\n\n${redact(question)}`.trim() }
     ]
   };

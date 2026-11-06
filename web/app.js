@@ -136,7 +136,7 @@ function render() {
   math(v);
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-function math(el) { try { window.renderMathInElement && renderMathInElement(el, { delimiters: [{ left: "$$", right: "$$", display: true }, { left: "$", right: "$", display: false }], output: "mathml", throwOnError: false }); } catch (e) {} }
+function math(el) { try { window.renderMathInElement && renderMathInElement(el, { delimiters: [{ left: "$$", right: "$$", display: true }, { left: "\\[", right: "\\]", display: true }, { left: "\\(", right: "\\)", display: false }, { left: "$", right: "$", display: false }], output: "mathml", throwOnError: false }); } catch (e) {} }
 let toastT = null;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600); }
 
@@ -599,7 +599,7 @@ function toggleTutor(it, open) { tutorOpen = open; $("#tutorBox").innerHTML = tu
 function wireTutor(it) {
   const a = $("#askBtn"); if (a) { a.onclick = () => toggleTutor(it, true); return; }
   const id = itemId(it), box = $("#tmsgs"), inp = $("#tin"); if (!inp) return;
-  box.scrollTop = box.scrollHeight; inp.focus();
+  math(box); box.scrollTop = box.scrollHeight; inp.focus();
   $("#tclose").onclick = () => toggleTutor(it, false);
   inp.oninput = () => { inp.style.height = "auto"; inp.style.height = Math.min(120, inp.scrollHeight) + "px"; };
   inp.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#tform").requestSubmit(); } };
@@ -948,6 +948,28 @@ document.addEventListener("click", (e) => { const a = e.target.closest && e.targ
 
 /* ---- review ---- */
 let rv = null; /* { ids: [...], shown: bool, done: n } */
+/* ---- "I don't know": explanation + references instead of rote memorisation ---- */
+const explained = {};
+function askExplain(card) {
+  const x = explained[card.id]; if (x && (x.loading || x.text)) return render();
+  if (!(Sync && Sync.enabled)) { explained[card.id] = { error: "Explanations run on the Forge Worker." }; return render(); }
+  explained[card.id] = { loading: true }; render();
+  const n = card.note && noteById(card.note);
+  api("POST", "/api/explain", { front: card.f, back: card.b, note: n ? { id: n.id, title: n.title, body: n.body } : null })
+    .then((r) => { explained[card.id] = r; }, (e) => { explained[card.id] = { error: e.message }; }).then(() => { if (route() === "review") render(); });
+}
+/** Where to read more: brain passages first, then the module's reading list. */
+function modRefs(modId) { const m = modId && modById(modId); return m ? m.res.slice(0, 3).map(([k, t, u]) => ({ title: t, href: u, sub: `${KIND[k] || k} · ${m.t}`, ext: true })) : []; }
+function cardRefs(card) { const n = card.note && noteById(card.note); return n ? modRefs(n.mod) : []; }
+function explainHtml(x, extra = [], saveLabel = "", foot = "Grade it honestly (Again or Hard): it comes back soon, and next time answer it from memory.") {
+  if (!x) return `<div class="row" style="justify-content:center"><button class="btn" id="explainGo">Explain it <kbd>E</kbd></button></div>`;
+  if (x.loading) return `<div class="explain faint">Explaining…</div>`;
+  if (x.error) return `<div class="explain"><span class="warn-txt">${esc(x.error)}</span></div>`;
+  const refs = (x.refs || []).map((r) => ({ title: r.title, href: sourceHref({ kind: r.kind, source_id: r.source_id }), sub: `${KINDS[r.kind] || r.kind} · in your brain` })).concat(extra);
+  return `<div class="explain"><span class="eyebrow">Explained</span><div class="md">${md(x.text)}</div>
+    ${refs.length ? `<div class="refs"><span class="eyebrow">Read next</span>${refs.map((r) => `<a class="next-item" href="${esc(r.href)}"${r.ext ? ext(r.href) : ""}><span>${esc(r.title)}</span><span class="faint m">${esc(r.sub)}</span></a>`).join("")}</div>` : ""}
+    <p class="faint m" style="margin:0">${foot}${saveLabel && !x.saved ? ` <button class="x" id="explainSave" type="button">${saveLabel}</button>` : x.saved ? " Saved in the note." : ""}</p></div>`;
+}
 VIEWS.review = (v) => {
   const q = SRS.queue(), byId = Object.fromEntries(q.cards.map((c) => [c.id, c]));
   if (rv && rv.day !== TODAY()) rv = null;
@@ -968,8 +990,9 @@ VIEWS.review = (v) => {
     <div class="row" style="justify-content:space-between"><span class="row" style="gap:6px"><span class="pill ${isNew ? "ember" : "acc"}">${isNew ? "new" : "review"}</span><span class="pill">${esc(card.src)}</span></span><span class="muted num" style="font-size:13px">${rv.ids.length} left</span></div>
     <div class="rv-front md">${md(card.f)}</div>
     ${rv.shown ? `<div class="rv-back md">${md(card.b)}</div>
+      ${explainHtml(explained[card.id], cardRefs(card), card.note ? "Save to note" : "")}
       <div class="grades">${[[1, "Again"], [2, "Hard"], [3, "Good"], [4, "Easy"]].map(([g, t]) => `<button class="btn g${g}" data-g="${g}"><span>${t}</span><span class="num faint">${SRS.label(SRS.next(S.srs[card.id], g).ivl)}</span><kbd>${g}</kbd></button>`).join("")}</div>`
-    : `<div class="row" style="justify-content:center;margin-top:8px"><button class="btn primary" id="show">Show answer <kbd>Space</kbd></button></div><p class="faint" style="text-align:center;font-size:13px">Answer aloud or on paper first. Recall is the training, not reading.</p>`}
+    : `<div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="noidea">No idea <kbd>E</kbd></button><button class="btn primary" id="show">Show answer <kbd>Space</kbd></button></div><p class="faint" style="text-align:center;font-size:13px">Answer aloud or on paper first. No idea at all? Get it explained instead of memorising it.</p>`}
     ${card.note ? `<a class="faint" style="font-size:13px" href="#library/${card.note}">Edit in note →</a>` : ""}`
   : `<div class="empty"><b style="color:var(--fg)">All caught up.</b><br>${upcoming.length ? `Next review ${upcoming[0]} · ${upcoming.filter((d) => d === upcoming[0]).length} cards.` : "Add Q:/A: lines to your notes to grow the deck."}${rv.done ? ` You reviewed ${rv.done} cards in this session.` : ""}</div>`}
   </section>
@@ -979,11 +1002,16 @@ VIEWS.review = (v) => {
   const show = () => { rv.shown = true; render(); };
   const grade = (g) => { const id = rv.ids.shift(); SRS.grade(id, g); rv.done++; if (g === 1) rv.ids.push(id); rv.shown = false; if (!rv.ids.length) toast(`Session done: ${rv.done} cards.`); markCleared(); render(); };
   const sb = $("#show"); if (sb) sb.onclick = show;
+  const explain = () => { if (!card) return; rv.shown = true; askExplain(card); };
+  const ni = $("#noidea"); if (ni) ni.onclick = explain;
+  const eb = $("#explainGo"); if (eb) eb.onclick = explain;
+  const sv = $("#explainSave"); if (sv) sv.onclick = () => { const n = noteById(card.note), x = explained[card.id]; if (!n || !x || !x.text) return; n.body = `${(n.body || "").trimEnd()}\n\n> **Explained ${TODAY()}: ${card.f.replace(/\n/g, " ").slice(0, 80)}**\n>\n${x.text.split("\n").map((l) => `> ${l}`).join("\n")}\n`; n.updated = Date.now(); x.saved = true; save(); toast("Saved under your notes."); render(); };
   $$("[data-g]", v).forEach((b) => b.onclick = () => grade(+b.dataset.g));
   $$("[data-off]", v).forEach((b) => b.onclick = () => { const id = b.dataset.off; const s = S.srs[id] || (S.srs[id] = { ease: 2.5, ivl: 0, reps: 0, lapses: 0, intro: TODAY(), due: TODAY() }); s.off = !s.off; save(); rv = null; render(); });
   const key = (e) => {
     if (Palette.isOpen() || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || !card) return;
     if (!rv.shown && (e.key === " " || e.key === "Enter")) { e.preventDefault(); show(); }
+    else if ((e.key === "e" || e.key === "E") && !e.metaKey && !e.ctrlKey && !(explained[card.id] && explained[card.id].text)) { e.preventDefault(); explain(); }
     else if (rv.shown && /^[1-4]$/.test(e.key)) { e.preventDefault(); grade(+e.key); }
   };
   document.addEventListener("keydown", key); cleanup.push(() => document.removeEventListener("keydown", key));
@@ -1202,7 +1230,7 @@ VIEWS.proof = (v) => {
       main = `<section class="card review">
         <div class="row" style="justify-content:space-between"><span class="row" style="gap:8px"><span class="score ${scoreCls(pr.score)} num">${pr.score}</span>${pr.pasted ? `<span class="pill warn" title="Graded, but it never counts toward mastery">pasted · not counted</span>` : ""}</span><span class="muted" style="font-size:13px">Back ${esc(dueTxt(pr.due))}</span></div>
         <div class="md" style="margin-top:6px"><b>Question.</b> ${md(pr.prompt)}</div>
-        <p style="margin:0"><b>Fix:</b> ${esc(pr.fix)}</p>
+        ${pr.gaveUp ? explainHtml(pr.explain, modRefs(pr.check_key && pr.check_key.split("#")[0]), "", "Counted as a miss: it comes back tomorrow. Read, then answer it from memory when it does.") : `<p style="margin:0"><b>Fix:</b> ${esc(pr.fix)}</p>`}
         <details open><summary class="eyebrow" style="cursor:pointer">Rubric</summary><div class="md">${md(pr.rubric)}</div></details>
         <div class="card chunk"><div class="row" style="justify-content:space-between"><b style="font-size:14px">${esc(pr.source.title || "Source")}</b>${pr.source.source_id ? `<a class="faint" style="font-size:13px" href="${sourceHref({ kind: pr.source.kind, source_id: pr.source.source_id })}">Open source →</a>` : ""}</div>
           ${pr.source.kind === "repo" || m.path ? `<pre>${esc(pr.source.text)}</pre>` : `<div class="md" style="margin-top:8px">${md(pr.source.text)}</div>`}</div>
@@ -1214,7 +1242,7 @@ VIEWS.proof = (v) => {
         <div class="rv-front md">${md(q.prompt)}</div>
         <textarea class="input proof-ans" id="pans" placeholder="Answer from memory. No notes, no search: this is the proof." spellcheck="true">${esc(pf.text)}</textarea>
         <div class="row" style="justify-content:space-between"><span class="faint" id="pflag" style="font-size:12px">${pf.pasted ? "Paste detected: it will be graded but won't count." : "Typing time is measured; pasted answers never count toward mastery."}</span>
-          <span class="row"><button class="x" id="pret" title="Bad question? Remove it">Retire</button><button class="btn primary" id="psend">Grade <kbd>⌘ Enter</kbd></button></span></div></section>`;
+          <span class="row"><button class="x" id="pret" title="Bad question? Remove it">Retire</button><button class="btn" id="pidk" title="Get it explained; it counts as a miss and comes back tomorrow">I don't know</button><button class="btn primary" id="psend">Grade <kbd>⌘ Enter</kbd></button></span></div></section>`;
     } else {
       main = `<section class="card"><div class="empty"><b style="color:var(--fg)">${s.done.length ? `Done for today: ${s.done.length} answered.` : "Nothing due."}</b><br>
         ${!s.ready ? "No AI provider is available on this deployment." : s.createdToday ? (s.canCreate ? "Today's question is answered. You can ask for another one." : "") : "Today's question hasn't been generated yet (the cron runs at 5:00)."}
@@ -1241,6 +1269,11 @@ VIEWS.proof = (v) => {
           .then((r) => { pr = { ...r, prompt: q.prompt }; pf = null; ACT().recall++; if (r.check_key && r.score >= 70 && !r.pasted) { ACT().checks++; checkProofs[r.check_key] = { proven: true, score: r.score }; } save(); refreshMastery(); render(); }, (e) => { fail(e); b.disabled = false; b.textContent = "Grade"; ta.readOnly = false; if (e.message && /retired/.test(e.message)) { pf = null; render(); } });
       };
       $("#psend").onclick = send;
+      $("#pidk").onclick = () => {
+        const b = $("#pidk"); b.disabled = true; b.textContent = "Explaining…"; ta.readOnly = true;
+        api("POST", `/api/proof/${q.id}/giveup`, {}).then((r) => { pr = { ...r, prompt: q.prompt }; pf = null; ACT().recall++; save(); refreshMastery(); render(); },
+          (e) => { fail(e); b.disabled = false; b.textContent = "I don't know"; ta.readOnly = false; });
+      };
       ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } };
       $("#pret").onclick = (e) => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Confirm retire"; return; } api("POST", `/api/proof/${q.id}/retire`, {}).then(() => { pf = null; render(); }, fail); };
       if (!pf.text) ta.focus();
@@ -1371,7 +1404,7 @@ function openCapture() {
       ${d.nudge ? `<p class="nudge">${esc(d.nudge)}</p>` : ""}</div>
       <div class="cap-f"><button class="btn" id="capMore" type="button">Another thought</button><button class="btn primary" id="capClose" type="button">Done</button></div></div>`;
     $("#capX", el).onclick = close; $("#capClose", el).onclick = close; $("#capMore", el).onclick = form;
-    $(".cap-dest", el).onclick = close; $("#capClose", el).focus();
+    $(".cap-dest", el).onclick = close; $("#capClose", el).focus(); math(el);
   };
   async function go() {
     const ta = $("#capText", el), text = ta.value.trim(); if (!text) return ta.focus();
