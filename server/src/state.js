@@ -1,6 +1,8 @@
 // App state sync over D1. Keys hold one JSON value each, with optimistic concurrency on `rev`.
 // Notes are rows in `sources` (kind note|journal), last-writer-wins on `updated`, with tombstones.
 
+import { rechunkNotes } from "./sources.js";
+
 export const SYNC_KEYS = ["days", "weeks", "practice", "code", "mocks", "theory", "skills", "pipeline", "path", "srs", "revDays", "log", "mock", "theoryRun"];
 const KEYSET = new Set(SYNC_KEYS);
 const VIS = new Set(["private", "trusted", "ai"]);
@@ -46,6 +48,7 @@ export async function putState(db, body) {
     if (!x || !("v" in x) || !Number.isInteger(x.base ?? 0)) throw bad(`kv.${k} needs {v, base}`);
     if (JSON.stringify(x.v).length > MAX_VALUE) throw bad(`kv.${k} is too large`);
   }
+  if (notesIn.length > 25) throw bad("Send at most 25 notes per request");
   const checked = notesIn.map(checkNote);
   if (!kvIn.length && !notesIn.length) return { rev: (await getState(db, Number.MAX_SAFE_INTEGER)).rev, applied: [], conflicts: {}, notes: { applied: [], newer: [] } };
 
@@ -71,6 +74,9 @@ export async function putState(db, body) {
     const rows = await db.prepare(`SELECT k, v, rev FROM kv WHERE k IN (${lost.map(() => "?").join(",")})`).bind(...lost).all();
     rows.results.forEach((r) => { conflicts[r.k] = { v: JSON.parse(r.v), rev: r.rev }; });
   }
+  // Applied notes become searchable chunks (with their visibility); deleted ones lose theirs.
+  const rechunk = notesIn.map((n, i) => ({ ...n, visibility: checked[i].visibility })).filter((n) => notesApplied.includes(n.id));
+  if (rechunk.length) await db.batch(await rechunkNotes(db, rechunk));
   let newer = [];
   if (notesLost.length) newer = (await db.prepare(`SELECT ${NOTE_COLS} FROM sources WHERE id IN (${notesLost.map(() => "?").join(",")})`).bind(...notesLost).all()).results.map(rowToNote);
   return { rev, applied, conflicts, notes: { applied: notesApplied, newer } };

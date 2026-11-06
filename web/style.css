@@ -418,3 +418,23 @@ details.card summary::before { content: "▸"; color: var(--faint); margin-right
 }
 @media (max-width: 480px) { .g-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi b { font-size: 24px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* brain */
+#topAction { display: inline-flex; gap: 8px; }
+.mono { font-family: var(--mono); }
+.small-sel { width: auto; padding: 5px 8px; font-size: 13px; }
+.hit { align-items: flex-start; }
+.snip { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.snip mark, .chunk mark { background: var(--accent-soft); color: var(--fg); border-radius: 3px; padding: 0 2px; }
+.repo { flex-wrap: wrap; gap: 8px; }
+.chunk { padding: 12px 14px; }
+.chunk pre { margin: 8px 0 0; font: 13px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; }
+details.call summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; cursor: pointer; padding: 6px 0; list-style: none; }
+details.call summary::-webkit-details-marker { display: none; }
+details.call + details.call { border-top: 1px solid var(--line); }
+.stack { display: flex; flex-direction: column; min-width: 0; }
+.next-item.hit, .next-item.repo, .next-item.ctx { display: flex; gap: 8px; }
+.small-sel { max-width: 100%; }
+.field .small-sel { width: 100%; }
+details.call summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+details.call[open] summary::before { transform: rotate(90deg); }

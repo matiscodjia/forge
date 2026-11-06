@@ -34,6 +34,8 @@ const I = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  sources: '<ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/>',
+  context: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
@@ -41,7 +43,8 @@ const ROUTES = [
   ["dashboard", "Home", ""], ["today", "Today", ""],
   ["path", "Path", "Learn"], ["library", "Library", "Learn"], ["review", "Review", "Learn"],
   ["arena", "Arena", "Practice"], ["diagnostic", "Diagnostic", "Practice"],
-  ["log", "Log", "Track"], ["skills", "Skills", "Track"], ["scorecard", "Scorecard", "Track"], ["pipeline", "Pipeline", "Track"], ["rules", "Rules", "Track"]
+  ["log", "Log", "Track"], ["skills", "Skills", "Track"], ["scorecard", "Scorecard", "Track"], ["pipeline", "Pipeline", "Track"], ["rules", "Rules", "Track"],
+  ["sources", "Sources", "Brain"], ["context", "Context", "Brain"]
 ];
 const MOBILE = ["dashboard", "today", "path", "review"];
 const NB = () => C.blocks.length; /* blocks per day */
@@ -795,8 +798,9 @@ function moduleView(v, m) {
 let libQ = "", libTag = "";
 VIEWS.library = (v) => {
   const id = routeArg(); if (id && noteById(id)) return noteView(v, noteById(id));
-  $("#topAction").innerHTML = `<button class="btn primary small" id="nnew">${icon("plus")} New note</button>`;
+  $("#topAction").innerHTML = `<button class="btn small" id="njour" title="Private: never sent to an AI">Journal entry</button><button class="btn primary small" id="nnew">${icon("plus")} New note</button>`;
   $("#nnew").onclick = () => { const n = newNote(); location.hash = `#library/${n.id}`; };
+  $("#njour").onclick = () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"], visibility: "private" }); location.hash = `#library/${n.id}`; };
   const tags = [...new Set(S.notes.flatMap((n) => n.tags || []))].sort();
   const q = libQ.trim().toLowerCase();
   const list = S.notes.filter((n) => (!libTag || (n.tags || []).includes(libTag)) && (!q || (n.title + " " + n.body + " " + (n.tags || []).join(" ")).toLowerCase().includes(q))).sort((a, b) => b.updated - a.updated);
@@ -936,6 +940,164 @@ VIEWS.log = (v) => {
   $$("[data-ldel]", v).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm"; return; } S.log = S.log.filter((e) => e.id !== b.dataset.ldel); save(); render(); });
 };
 
+/* ---------------- brain: sources, search, repos, context inspector (needs the Forge Worker) ---------------- */
+const VIS = [["private", "Private · never sent to an AI"], ["trusted", "Trusted providers only"], ["ai", "Any AI provider"]];
+const visPill = (v) => v === "private" ? `<span class="pill warn" title="Never sent to an AI">private</span>` : v === "ai" ? `<span class="pill acc" title="Any AI provider may read it">ai</span>` : `<span class="pill" title="Only providers marked trusted">trusted</span>`;
+const visSel = (v, attr) => `<select class="input small-sel" ${attr} aria-label="AI visibility">${VIS.map(([k, t]) => `<option value="${k}" ${v === k ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+async function api(method, path, body) {
+  const r = await fetch(path, { method, credentials: "same-origin", headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const x = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(x.error || `Server answered ${r.status}`);
+  return x;
+}
+const fail = (e) => toast(e.message || String(e));
+const where = (m = {}) => m.path ? `${m.path}${m.lines ? `:${m.lines[0]}–${m.lines[1]}` : ""}${m.symbol && m.symbol !== "(header)" ? ` · ${m.symbol}` : ""}` : [m.page ? `p. ${m.page}` : "", m.heading || "", m.commit ? `commit ${m.commit.slice(0, 10)}` : ""].filter(Boolean).join(" · ");
+const snip = (s) => esc(s || "").replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
+const when = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "never";
+const KINDS = { note: "Note", journal: "Journal", course: "Course", file: "File", repo: "Code", commit: "Commit", decision: "Decision", wiki: "Wiki" };
+const sourceHref = (r) => r.kind === "note" || r.kind === "journal" ? `#library/${r.source_id || r.id}` : `#sources/${r.source_id || r.id}`;
+function needsWorker(v) {
+  if (Sync && Sync.enabled) return false;
+  v.innerHTML = `<div class="empty"><p style="max-width:56ch;margin:0 auto">The second brain lives on the Forge Worker (D1). Open Forge from <b>forge.matis-codjia.workers.dev</b> and sign in: sources, search and the context inspector appear here.</p></div>`;
+  return true;
+}
+
+let srcQ = "", srcHits = null, srcSeq = 0;
+VIEWS.sources = (v) => {
+  if (needsWorker(v)) return;
+  const id = routeArg(); if (id) return sourceView(v, id);
+  v.innerHTML = `
+  <section class="card"><div class="card-h"><h3>Search everything</h3><span class="muted" style="font-size:13px">Notes, courses, code and commits · local full-text search, nothing leaves the database</span></div>
+    <input class="input" id="sq" type="search" placeholder="kalman_update, chain rule, attention scaling…" value="${esc(srcQ)}" autocomplete="off">
+    <div id="shits" style="margin-top:12px"></div></section>
+  <section class="grid g-2">
+    <div class="card"><div class="card-h"><h3>Add a course or document</h3></div>
+      <form id="up" class="stack" style="gap:10px">
+        <label class="field"><span>PDF, slides exported as PDF, Markdown or text</span><input class="input" type="file" id="upf" accept=".pdf,.md,.markdown,.txt" required></label>
+        <div class="row"><label class="field" style="flex:1 1 140px"><span>Project</span><input class="input" id="upp" placeholder="cs231n"></label>
+        <label class="field" style="flex:1 1 180px"><span>AI visibility</span>${visSel("ai", 'id="upv"')}</label></div>
+        <div class="row"><button class="btn primary" type="submit" id="upb">Upload</button><span class="faint" id="ups" style="font-size:13px">Text is extracted in this browser; only the text is sent.</span></div>
+      </form></div>
+    <div class="card"><div class="card-h"><h3>GitHub repositories</h3><span class="faint" id="ghtok" style="font-size:12px"></span></div>
+      <form id="ra" class="row" style="flex-wrap:nowrap"><input class="input" id="rname" placeholder="owner/name or GitHub URL" required style="flex:2"><input class="input" id="rbr" placeholder="main" style="flex:1" aria-label="Branch"><button class="btn" type="submit">Add</button></form>
+      <div id="repos" style="margin-top:12px"><div class="faint">Loading…</div></div></div>
+  </section>
+  <section class="card"><div class="card-h"><h3>Sources</h3><span class="muted" style="font-size:13px">Visibility applies to every chunk of a source. Change notes in the Library.</span></div><div id="slist" class="table-wrap"><div class="faint">Loading…</div></div></section>`;
+
+  const drawHits = () => {
+    const el = $("#shits"); if (!el) return;
+    if (!srcQ.trim()) { el.innerHTML = ""; return; }
+    if (!srcHits) { el.innerHTML = `<div class="faint">Searching…</div>`; return; }
+    el.innerHTML = srcHits.length ? `<div class="next-list">${srcHits.map((h) => `<a class="next-item hit" href="${sourceHref(h)}"><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:6px"><b>${esc(h.title)}</b><span class="pill">${KINDS[h.kind] || h.kind}</span>${visPill(h.visibility)}</span><span class="faint mono" style="font-size:12px">${esc(where(h.meta))}</span><span class="muted snip">${snip(h.snip)}</span></span></a>`).join("")}</div>` : `<div class="empty">No match.</div>`;
+  };
+  const runQ = async () => { const q = srcQ, n = ++srcSeq; srcHits = null; drawHits(); if (!q.trim()) return; try { const r = await api("GET", `/api/search?q=${encodeURIComponent(q)}`); if (n === srcSeq) { srcHits = r.results; drawHits(); } } catch (e) { fail(e); } };
+  let qt = null; cleanup.push(() => clearTimeout(qt));
+  $("#sq").oninput = (e) => { srcQ = e.target.value; clearTimeout(qt); qt = setTimeout(runQ, 220); };
+  if (srcQ.trim()) runQ();
+
+  const loadSources = async () => {
+    const el = $("#slist"); if (!el) return;
+    let rows; try { rows = await api("GET", "/api/sources"); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    if (!$("#slist")) return;
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Title</th><th>Kind</th><th>Project</th><th>Chunks</th><th>AI visibility</th><th></th></tr></thead><tbody>${rows.map((s) => `<tr><td><a href="${sourceHref(s)}">${esc(s.title || "Untitled")}</a></td><td>${KINDS[s.kind] || s.kind}</td><td class="muted">${esc(s.project || "—")}</td><td class="num">${s.chunks}</td><td>${s.kind === "note" || s.kind === "journal" ? visPill(s.visibility) : visSel(s.visibility, `data-svis="${s.id}"`)}</td><td>${s.kind === "note" || s.kind === "journal" ? "" : `<button class="x" data-sdel="${s.id}">Delete</button>`}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Nothing yet. Upload a course, add a repository, or write notes in the Library: they sync here as searchable chunks.</div>`;
+    $$("[data-svis]", el).forEach((s) => s.onchange = () => api("PATCH", `/api/sources/${s.dataset.svis}`, { visibility: s.value }).then(() => toast(s.value === "private" ? "Private: never sent to an AI." : "Visibility updated."), fail));
+    $$("[data-sdel]", el).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm"; return; } api("DELETE", `/api/sources/${b.dataset.sdel}`).then(loadSources, fail); });
+  };
+
+  const loadRepos = async () => {
+    const el = $("#repos"); if (!el) return;
+    let rows; try { rows = await api("GET", "/api/repos"); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    if (!$("#repos")) return;
+    el.innerHTML = rows.length ? `<div class="next-list">${rows.map((r) => `<div class="next-item repo"><span class="stack" style="gap:2px;flex:1 1 240px"><b class="mono" style="overflow-wrap:anywhere">${esc(r.full_name)}<span class="faint"> @${esc(r.branch)}</span></b><span class="faint" style="font-size:12px" data-rst="${r.id}">${r.files} files · ${r.chunks} chunks · synced ${when(r.synced_at)}${r.head_sha ? ` · ${r.head_sha.slice(0, 7)}` : ""}</span></span>${visSel(r.visibility, `data-rvis="${r.id}"`)}<button class="btn small" data-rsync="${r.id}">Sync</button><button class="x" data-rdel="${r.id}">Remove</button></div>`).join("")}</div>`
+      : `<div class="faint" style="font-size:13px">Code is chunked by function and class, Markdown by heading. Re-syncing skips unchanged files.</div>`;
+    $$("[data-rvis]", el).forEach((s) => s.onchange = () => api("PATCH", `/api/repos/${s.dataset.rvis}`, { visibility: s.value }).then(() => toast("Visibility applied to every file and commit."), fail));
+    $$("[data-rdel]", el).forEach((b) => b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "Confirm"; return; } api("DELETE", `/api/repos/${b.dataset.rdel}`).then(loadRepos, fail); });
+    $$("[data-rsync]", el).forEach((b) => b.onclick = async () => {
+      const st = $(`[data-rst="${b.dataset.rsync}"]`); b.disabled = true; let n = 0, c = 0;
+      try {
+        for (let i = 0; i < 200; i++) {
+          const r = await api("POST", `/api/repos/${b.dataset.rsync}/sync`, {});
+          n += r.processed.length; c += r.commits;
+          if (st) st.textContent = r.done ? "" : `Syncing… ${n} files indexed, ${r.remaining} to go`;
+          if (r.done) { toast(n || c ? `Indexed ${n} changed file${n === 1 ? "" : "s"} and ${c} commit${c === 1 ? "" : "s"}.` : "Already up to date."); break; }
+        }
+      } catch (e) { fail(e); }
+      b.disabled = false; loadRepos(); loadSources();
+    });
+  };
+
+  $("#ra").onsubmit = (e) => { e.preventDefault(); api("POST", "/api/repos", { full_name: $("#rname").value, branch: $("#rbr").value.trim() || "main" }).then(() => { $("#rname").value = ""; loadRepos(); toast("Added. Press Sync to index it."); }, fail); };
+  $("#up").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = $("#upf").files[0]; if (!f) return;
+    const st = $("#ups"), btn = $("#upb"); btn.disabled = true;
+    try {
+      st.textContent = "Extracting text…";
+      const parts = /\.pdf$/i.test(f.name) ? await pdfPages(f, (i, n) => { st.textContent = `Reading page ${i}/${n}…`; }) : textParts(await f.text());
+      if (!parts.some((p) => p.text.trim())) throw new Error("No text found. Scanned PDFs need OCR first.");
+      const { id } = await api("POST", "/api/sources", { kind: "course", title: f.name.replace(/\.[^.]+$/, ""), origin: f.name, project: $("#upp").value.trim() || null, visibility: $("#upv").value });
+      for (let i = 0; i < parts.length; i += 20) { st.textContent = `Uploading ${Math.min(parts.length, i + 20)}/${parts.length}…`; await api("POST", `/api/sources/${id}/parts`, { parts: parts.slice(i, i + 20) }); }
+      toast(`${f.name}: ${parts.length} part${parts.length === 1 ? "" : "s"} indexed.`); location.hash = `#sources/${id}`;
+    } catch (err) { fail(err); st.textContent = "Text is extracted in this browser; only the text is sent."; }
+    btn.disabled = false;
+  };
+  api("GET", "/api/health").then((h) => { const el = $("#ghtok"); if (el) el.textContent = h.github ? "read-only token set" : "public repos only (no GITHUB_TOKEN)"; }, () => {});
+  loadRepos(); loadSources();
+};
+
+function textParts(t) { const out = []; for (let i = 0; i < t.length; i += 150000) out.push({ text: t.slice(i, i + 150000), meta: {} }); return out.length ? out : [{ text: "", meta: {} }]; }
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+let pdfLib = null;
+function loadPdf() {
+  if (pdfLib) return pdfLib;
+  pdfLib = new Promise((ok, ko) => { const s = document.createElement("script"); s.src = PDFJS + "pdf.min.js"; s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js"; ok(window.pdfjsLib); }; s.onerror = () => { pdfLib = null; ko(new Error("Couldn't load the PDF reader. Check your connection.")); }; document.head.appendChild(s); });
+  return pdfLib;
+}
+/* One part per page; lines are rebuilt from the text items' vertical positions. */
+async function pdfPages(file, onPage) {
+  const lib = await loadPdf(), doc = await lib.getDocument({ data: await file.arrayBuffer() }).promise, parts = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    onPage(p, doc.numPages);
+    const tc = await (await doc.getPage(p)).getTextContent();
+    let text = "", y = null;
+    for (const it of tc.items) { const iy = it.transform ? it.transform[5] : y; if (y !== null && Math.abs(iy - y) > 2) text += "\n"; else if (text && !text.endsWith(" ")) text += " "; text += it.str; y = iy; if (it.hasEOL) { text += "\n"; y = null; } }
+    parts.push({ text: text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim(), meta: { page: p } });
+  }
+  return parts;
+}
+
+function sourceView(v, id) {
+  v.innerHTML = `<div class="faint">Loading…</div>`;
+  api("GET", `/api/sources/${encodeURIComponent(id)}`).then((s) => {
+    if (route() !== "sources" || routeArg() !== id) return;
+    document.title = `${s.title} · Forge`;
+    const locked = s.kind === "note" || s.kind === "journal" || s.kind === "repo" || s.kind === "commit";
+    v.innerHTML = `
+    <nav class="crumbs"><a href="#sources">Sources</a><span>/</span><span>${esc(s.title)}</span></nav>
+    <section class="card"><div class="row" style="justify-content:space-between">
+      <div class="stack" style="gap:4px"><h3 style="margin:0">${esc(s.title)}</h3><span class="muted" style="font-size:13px">${KINDS[s.kind] || s.kind}${s.project ? ` · ${esc(s.project)}` : ""}${s.origin ? ` · ${esc(s.origin)}` : ""} · ${s.chunks.length} chunks · updated ${when(s.updated)}</span></div>
+      <span class="row">${locked ? `${visPill(s.visibility)}<span class="faint" style="font-size:12px">${s.kind === "repo" || s.kind === "commit" ? "set on the repository" : "set in the Library"}</span>` : visSel(s.visibility, 'id="svis"')}</span></div></section>
+    <section class="stack" style="gap:10px">${s.chunks.map((c) => `<article class="card chunk"><div class="row" style="justify-content:space-between"><span class="faint mono" style="font-size:12px">#${c.ord + 1} · ${esc(where(c.meta) || "—")}</span>${c.visibility !== s.visibility ? visPill(c.visibility) : ""}</div><pre>${esc(c.text)}</pre></article>`).join("") || `<div class="empty">No chunks.</div>`}</section>`;
+    const sv = $("#svis"); if (sv) sv.onchange = () => api("PATCH", `/api/sources/${id}`, { visibility: sv.value }).then(() => { toast("Visibility applied to every chunk."); render(); }, fail);
+  }, (e) => { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+}
+
+VIEWS.context = (v) => {
+  if (needsWorker(v)) return;
+  v.innerHTML = `
+  <section class="card"><div class="card-h"><h3>What the AI saw</h3></div>
+    <p class="muted" style="margin:0;max-width:72ch">Every model call goes through one gate. It drops anything <b>private</b>, keeps <b>trusted</b> items for trusted providers only, redacts emails and phone numbers, and records here exactly which items left, to which provider, and why that provider was chosen.</p>
+    <div class="row" style="gap:8px;margin-top:12px">${visPill("private")}<span class="faint" style="font-size:12px">never leaves</span>${visPill("trusted")}<span class="faint" style="font-size:12px">trusted providers</span>${visPill("ai")}<span class="faint" style="font-size:12px">any provider</span></div></section>
+  <section class="card"><div class="card-h"><h3>Calls</h3><span class="muted" style="font-size:13px">Latest 100</span></div><div id="calls"><div class="faint">Loading…</div></div></section>`;
+  api("GET", "/api/audit").then(({ calls }) => {
+    const el = $("#calls"); if (!el) return;
+    const dec = (d) => !d ? "" : d.action === "switched" ? `<span class="pill warn">switched from ${esc(d.from)}: ${esc(d.because)}</span>` : d.action === "excluded" ? `<span class="pill">${d.excluded.length} item${d.excluded.length === 1 ? "" : "s"} held back</span>` : `<span class="pill good">routed</span>`;
+    el.innerHTML = calls.length ? `<div class="next-list">${calls.map((c) => `<details class="call"><summary><span class="num faint">${when(c.at)}</span><b>${esc(c.task)}</b><span class="pill mono">${esc(c.provider)} · ${esc(c.model || "")}</span>${dec(c.decision)}<span class="faint num" style="margin-left:auto;font-size:12px">${c.items.length} items · ${c.tokens_in ?? "?"}→${c.tokens_out ?? "?"} tok</span></summary>
+      <div class="next-list" style="margin-top:8px">${c.items.map((it) => it.source_id ? `<a class="next-item ctx" href="${sourceHref(it)}"><span>${esc(it.title || it.id)}</span><span class="pill">${KINDS[it.kind] || it.kind || ""}</span>${visPill(it.visibility)}</a>` : `<div class="next-item ctx faint">${esc(it.id)} · deleted since</div>`).join("") || `<div class="faint">No context items.</div>`}</div></details>`).join("")}</div>`
+      : `<div class="empty"><p style="max-width:56ch;margin:0 auto">No AI call yet. When the tutor, grader or wiki agent calls a model, each call appears here with the exact items it was given.</p></div>`;
+  }, (e) => { const el = $("#calls"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+};
+
 /* ---------------- command palette (⌘K / Ctrl K / "/") ---------------- */
 const Palette = {
   el: null, sel: 0, list: [],
@@ -946,6 +1108,8 @@ const Palette = {
       ROUTES.map(([k, t, g]) => ({ t, sub: g || "Page", run: go("#" + k) })),
       [{ t: "New note", sub: "Action", run: () => { const n = newNote(); location.hash = `#library/${n.id}`; } },
        { t: "Log a session", sub: "Action", run: go("#log") },
+       { t: "Journal entry", sub: "Action · private", run: () => { const n = newNote({ kind: "journal", title: `Journal ${TODAY()}`, tags: ["journal"], visibility: "private" }); location.hash = `#library/${n.id}`; } },
+       { t: "Search the second brain", sub: "Action", run: go("#sources") },
        { t: "Review due cards", sub: "Action", run: go("#review") },
        { t: "Export backup", sub: "Action", run: () => $("#exportBtn").click() },
        { t: "Import backup", sub: "Action", run: () => $("#importFile").click() },

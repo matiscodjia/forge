@@ -1,33 +1,12 @@
 // End to end: two simulated devices sync through the real Worker handler, on SQLite standing in for D1.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
 import worker from "../src/index.js";
+import { setup } from "./helpers/env.js";
 
 await import("../../web/sync.js"); // classic browser script: registers globalThis.ForgeSync
 const ForgeSync = globalThis.ForgeSync;
-const root = new URL("../migrations/", import.meta.url);
 
-/** Minimal D1 API over node:sqlite: prepare/bind/first/all/run/batch. */
-function fakeD1() {
-  const db = new DatabaseSync(":memory:");
-  for (const f of ["0001_second_brain.sql", "0002_app_state.sql"]) db.exec(readFileSync(new URL(f, root), "utf8"));
-  const stmt = (sql, args = []) => ({
-    bind: (...a) => stmt(sql, a),
-    first: async (col) => { const r = db.prepare(sql).get(...args); return r ? (col ? r[col] : r) : null; },
-    all: async () => ({ results: db.prepare(sql).all(...args) }),
-    run: async () => { const r = db.prepare(sql).run(...args); return { meta: { changes: Number(r.changes) } }; },
-    _exec: () => { const p = db.prepare(sql); return /^\s*(SELECT|WITH)/i.test(sql) || /RETURNING/i.test(sql) ? { results: p.all(...args), meta: { changes: 0 } } : { results: [], meta: { changes: Number(p.run(...args).changes) } }; }
-  });
-  return { prepare: (sql) => stmt(sql), batch: async (ss) => { db.exec("BEGIN"); try { const out = ss.map((s) => s._exec()); db.exec("COMMIT"); return out; } catch (e) { db.exec("ROLLBACK"); throw e; } } };
-}
-
-function setup(env = {}) {
-  const e = { DB: fakeD1(), AUTH: "dev", ASSETS: { fetch: async () => new Response("asset") }, ...env };
-  const f = (path, init = {}) => worker.fetch(new Request(new URL(path, "http://localhost").href, init), e);
-  return { env: e, f };
-}
 const memStorage = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
 const blankState = () => ({ days: {}, weeks: {}, practice: {}, code: {}, mocks: [], theory: [], skills: {}, pipeline: [], path: {}, srs: {}, revDays: {}, log: [], mock: null, theoryRun: null, notes: [] });
 function device(f) {

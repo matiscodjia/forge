@@ -64,18 +64,19 @@ function create({ getState, onRemoteChange, onStatus = () => {}, fetch: f = (...
   async function run() {
     const S = getState();
     let changed = applyPull(S, await api("GET", `/api/state?since=${meta.rev}`));
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let round = 0; round < 40; round++) { // notes go 20 at a time: the server does a bounded amount of work per call
       const kv = {};
       for (const k of KEYS) if (meta.hash[k] === undefined ? !isEmpty(S[k]) : h(S[k]) !== meta.hash[k]) kv[k] = { v: S[k] === undefined ? null : S[k], base: meta.base[k] || 0 };
       const ids = new Set(S.notes.map((n) => n.id));
-      const notes = S.notes.filter((n) => n.updated !== meta.notes[n.id]);
+      let notes = S.notes.filter((n) => n.updated !== meta.notes[n.id]);
       for (const [id, u] of Object.entries(meta.notes)) if (u !== -1 && !ids.has(id)) notes.push({ id, deleted: true, updated: Date.now() });
+      notes = notes.slice(0, 20);
       if (!Object.keys(kv).length && !notes.length) break;
       const res = await api("PUT", "/api/state", { kv, notes });
       for (const k of res.applied) { meta.base[k] = res.rev; meta.hash[k] = h(kv[k].v); }
       for (const id of res.notes.applied) { const n = notes.find((x) => x.id === id); meta.notes[id] = n.deleted ? -1 : n.updated; }
       if (Object.keys(res.conflicts).length || res.notes.newer.length) changed = applyPull(S, { kv: res.conflicts, notes: res.notes.newer }) || changed;
-      else break;
+      saveMeta();
     }
     saveMeta();
     return changed;
