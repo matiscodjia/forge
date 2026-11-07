@@ -584,3 +584,13 @@ details.call[open] summary::before { transform: rotate(90deg); }
 .grade-bd .err .gv { font-size: 12px; }
 .grade-bd q { display: block; margin-top: 4px; font-size: 14px; color: var(--fg); font-style: italic; }
 .grade-bd q::before { content: "“"; } .grade-bd q::after { content: "”"; }
+
+/* ---------- softer reading in Review and Proof: the answer side reads like a book, not a form ---------- */
+.rv-back { font: 400 20px/1.6 var(--display); letter-spacing: 0; color: color-mix(in srgb, var(--fg) 90%, var(--mute)); font-optical-sizing: auto; }
+.rv-back .katex, .rv-front .katex { font-size: 1.12em; }
+.rv-back .katex-display { margin: .5em 0; }
+.review .md:not(.rv-front), .review .explain { font-family: var(--display); font-size: 18px; line-height: 1.65; letter-spacing: 0; color: color-mix(in srgb, var(--fg) 92%, var(--mute)); }
+.review .md p, .review .explain p { margin: 0 0 .7em; }
+.review .md b, .review .md strong, .review .explain b, .review .explain strong { font-weight: 500; }
+.review .grade-bd q { font-family: var(--display); font-size: 16px; }
+@media (max-width: 600px) { .rv-back { font-size: 18px; } .review .md:not(.rv-front), .review .explain { font-size: 17px; } }
